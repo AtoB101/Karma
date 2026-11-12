@@ -54,17 +54,9 @@ VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
     TaskStatus.PENDING: [TaskStatus.ACCEPTED, TaskStatus.CANCELLED],
     TaskStatus.ACCEPTED: [TaskStatus.IN_PROGRESS, TaskStatus.DISPUTED, TaskStatus.CANCELLED],
     TaskStatus.IN_PROGRESS: [TaskStatus.PROGRESS_SUBMITTED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.CANCELLED],
-    # ProgressSubmitted keeps its own edge: a step report is evidence, not a
-    # phase change, so a task with several milestones reports progress more
-    # than once while the settlement stays in this status (the receipt rows
-    # carry progress_percent / claimed_value_percent, and ``/v1/progress``
-    # rejects rollbacks and duplicate evidence hashes separately).
-    TaskStatus.PROGRESS_SUBMITTED: [TaskStatus.PROGRESS_SUBMITTED, TaskStatus.PROGRESS_CONFIRMED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED],
+    TaskStatus.PROGRESS_SUBMITTED: [TaskStatus.PROGRESS_CONFIRMED, TaskStatus.DELIVERED, TaskStatus.SETTLED, TaskStatus.DISPUTED],
     TaskStatus.PROGRESS_CONFIRMED: [TaskStatus.DELIVERED, TaskStatus.DISPUTED, TaskStatus.SETTLED, TaskStatus.AUTO_CONFIRMED],
-    # AUTO_CONFIRMED 是「买方在确认窗口内没表态」的兜底出口：窗口到期后从
-    # DELIVERED 直接进入自动确认（见 api/routes/settlement.py 的 /auto-confirm）。
-    # 没有这条边，交付后的超时兜底永远 409，钱会一直卡在托管里。
-    TaskStatus.DELIVERED: [TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.REFUNDED, TaskStatus.FROZEN, TaskStatus.AUTO_CONFIRMED],
+    TaskStatus.DELIVERED: [TaskStatus.SETTLED, TaskStatus.DISPUTED, TaskStatus.REFUNDED, TaskStatus.FROZEN],
     TaskStatus.DISPUTED: [TaskStatus.ARBITRATED, TaskStatus.FROZEN],
     TaskStatus.ARBITRATED: [TaskStatus.SETTLED, TaskStatus.REFUNDED, TaskStatus.PARTIALLY_SETTLED, TaskStatus.FROZEN],
     TaskStatus.SETTLED: [TaskStatus.FROZEN],
@@ -76,20 +68,6 @@ VALID_TRANSITIONS: dict[TaskStatus, list[TaskStatus]] = {
     TaskStatus.FROZEN: [TaskStatus.DELIVERED, TaskStatus.DISPUTED, TaskStatus.SETTLED, TaskStatus.REFUNDED, TaskStatus.CANCELLED],
 }
 
-#: The administrative freeze override. Almost every status has an edge into it
-#: (DELIVERED / DISPUTED / ARBITRATED / SETTLED / ...), but FROZEN itself keeps
-#: out-edges back into the lifecycle, so a frozen settlement is *not* finished.
-#: Naming it is what lets :func:`is_terminal` agree with the "Terminal" labels in
-#: ``core.schemas.TaskStatus`` instead of contradicting them.
-FREEZE_OVERRIDE: TaskStatus = TaskStatus.FROZEN
-
-#: Ordering used by :func:`is_post_accepted`, which is asked one question only:
-#: "is this status reached *after* the worker was locked in?" Every status from
-#: ACCEPTED onwards must therefore sort >= ``STATUS_ORDER[TaskStatus.ACCEPTED]``
-#: -- terminal and meta states included. A missing key (``.get`` falls back to 0)
-#: or a zero entry silently turns the immutable-field guard in
-#: ``db.stores.settlement_store`` *off* for that status, which is exactly the
-#: belt that is supposed to protect escrow_amount / the two parties.
 STATUS_ORDER: dict[TaskStatus, int] = {
     TaskStatus.DRAFT: 1,
     TaskStatus.PENDING: 2,
@@ -100,14 +78,11 @@ STATUS_ORDER: dict[TaskStatus, int] = {
     TaskStatus.DELIVERED: 7,
     TaskStatus.DISPUTED: 8,
     TaskStatus.ARBITRATED: 9,
-    TaskStatus.AUTO_CONFIRMED: 10,
-    TaskStatus.PARTIALLY_SETTLED: 11,
-    TaskStatus.SETTLED: 12,
-    TaskStatus.REFUNDED: 12,
-    TaskStatus.CANCELLED: 12,
-    # Meta-state: freezing is only reachable from DELIVERED/ARBITRATED/... so it
-    # is post-accepted by construction; it sorts last rather than not at all.
-    TaskStatus.FROZEN: 13,
+    TaskStatus.AUTO_CONFIRMED: 6,  # between PROGRESS_CONFIRMED (6) and DELIVERED (7)
+    TaskStatus.PARTIALLY_SETTLED: 9,  # between ARBITRATED (9) and SETTLED (10)
+    TaskStatus.FROZEN: 0,  # FROZEN is a meta-state, not in normal order
+    TaskStatus.REFUNDED: 10,
+    TaskStatus.CANCELLED: 10,
 }
 
 
@@ -117,22 +92,8 @@ def canonical_task_status(status: TaskStatus | str) -> TaskStatus:
 
 
 def is_terminal(status: TaskStatus) -> bool:
-    """True when the settlement has left the lifecycle for good.
-
-    Derived from :data:`VALID_TRANSITIONS` so it cannot drift from the edge
-    table: a status is terminal when *every* outgoing edge is the
-    :data:`FREEZE_OVERRIDE`. That makes ``SETTLED`` / ``REFUNDED`` /
-    ``CANCELLED`` terminal (their only edge is the freeze) and keeps ``FROZEN``
-    and ``PARTIALLY_SETTLED`` non-terminal (both can still reach a money status
-    that is not a freeze).
-
-    A status with no row in the table has no outgoing edge and therefore also
-    reads as terminal -- the correct answer for ``AUTHORIZED``, which lives
-    off-task on the voucher ledger and has no settlement lifecycle at all.
-    """
     canonical = canonical_task_status(status)
-    edges = VALID_TRANSITIONS.get(canonical, [])
-    return all(edge == FREEZE_OVERRIDE for edge in edges)
+    return VALID_TRANSITIONS.get(canonical, []) == []
 
 
 def can_transition(from_status: TaskStatus, to_status: TaskStatus) -> bool:

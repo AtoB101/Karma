@@ -9,9 +9,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from httpx import AsyncClient
 from httptest import post_minimal_contract, post_success_execution_receipt
-from config.settings import settings
-from core.schemas import EvidenceBundle, ExecutionReceipt, ToolStatus
-from services.receipt_canonical import evidence_bundle_signing_bytes
+from core.schemas import ExecutionReceipt, ToolStatus
 from services.signing import signing_service
 
 
@@ -334,100 +332,42 @@ async def test_submit_receipt_rejects_non_sequential_step(client: AsyncClient):
 # Evidence Bundle
 # ---------------------------------------------------------------------------
 
-def _signed_bundle(**fields) -> dict:
-    """带真实签名的证据包 JSON（P0-5：签名必填且强制验签）。"""
-    bundle = EvidenceBundle(**fields)
-    bundle.agent_signature = signing_service.sign_bytes(
-        evidence_bundle_signing_bytes(bundle)
-    )
-    return bundle.model_dump(mode="json")
-
-
-async def _open_settlement(client, *, task_id: str, buyer: str, escrow: float = 10.0) -> None:
-    """给证据包用例准备一个真实的结算：证据包必须有归属（P0-5）。"""
-    await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": escrow})
-    await post_minimal_contract(
-        client,
-        task_id=task_id,
-        client_agent_id=buyer,
-        escrow_amount=escrow,
-        expected_step_count=3,
-    )
-    created = await client.post(
-        "/v1/settlement/create",
-        json={
-            "task_id": task_id,
-            "client_agent_id": buyer,
-            "escrow_amount": escrow,
-            "currency": "USD",
-        },
-    )
-    assert created.status_code == 201, created.text
-
-
 @pytest.mark.asyncio
 async def test_submit_bundle(client: AsyncClient):
-    task_id = "task-bundle-int-001"
-    buyer = "buyer-bundle-int-001"
-    await _open_settlement(client, task_id=task_id, buyer=buyer)
-    bundle_data = _signed_bundle(
-        task_id=task_id,
-        task_contract_hash="x" * 64,
-        receipt_ids=["r1", "r2", "r3"],
-        receipt_hashes=["h1", "h2", "h3"],
-        final_result_hash="f" * 64,
-        total_steps=3,
-        successful_steps=3,
-        failed_steps=0,
-        total_duration_ms=450,
-    )
-    as_buyer = {"X-Karma-Identity-Id": buyer}
-    resp = await client.post("/v1/bundles", json=bundle_data, headers=as_buyer)
-    assert resp.status_code == 201, resp.text
+    from datetime import datetime
+    bundle_data = {
+        "task_id":           "task-bundle-int-001",
+        "task_contract_hash":"x" * 64,
+        "receipt_ids":       ["r1", "r2", "r3"],
+        "receipt_hashes":    ["h1", "h2", "h3"],
+        "final_result_hash": "f" * 64,
+        "total_steps":       3,
+        "successful_steps":  3,
+        "failed_steps":      0,
+        "total_duration_ms": 450,
+        "created_at":        datetime.utcnow().isoformat(),
+    }
+    resp = await client.post("/v1/bundles", json=bundle_data)
+    assert resp.status_code == 201
     assert resp.json()["bundle_id"]
-
-    # 没签名不能建包（P0-5：签名必填）。
-    unsigned = await client.post(
-        "/v1/bundles",
-        json={**bundle_data, "bundle_id": "unsigned-bundle", "agent_signature": None},
-        headers=as_buyer,
-    )
-    assert unsigned.status_code == 422, unsigned.text
-
-    # 签名验不过也不能建包（P0-5：强制验签 —— 改一个字段就让签名失效）。
-    tampered = await client.post(
-        "/v1/bundles",
-        json={**bundle_data, "bundle_id": "tampered-bundle", "total_steps": 99},
-        headers=as_buyer,
-    )
-    assert tampered.status_code == 400, tampered.text
-
-    # 第三方不能给别人的任务建包（P0-5 回归）。
-    stranger = await client.post(
-        "/v1/bundles",
-        json={**bundle_data, "task_id": task_id, "bundle_id": "stranger-bundle"},
-        headers={"X-Karma-Identity-Id": "some-stranger"},
-    )
-    assert stranger.status_code in (403, 409), stranger.text
 
 
 @pytest.mark.asyncio
 async def test_get_bundle_by_task(client: AsyncClient):
+    from datetime import datetime
     task_id = "task-bundle-get-001"
-    buyer = "buyer-bundle-get-001"
-    await _open_settlement(client, task_id=task_id, buyer=buyer)
-    created = await client.post("/v1/bundles", json=_signed_bundle(
-        task_id=task_id,
-        task_contract_hash="x" * 64,
-        receipt_ids=[],
-        receipt_hashes=[],
-        final_result_hash="f" * 64,
-        total_steps=0,
-        successful_steps=0,
-        failed_steps=0,
-        total_duration_ms=0,
-    ), headers={"X-Karma-Identity-Id": buyer})
-    assert created.status_code == 201, created.text
+    await client.post("/v1/bundles", json={
+        "task_id": task_id,
+        "task_contract_hash": "x" * 64,
+        "receipt_ids": [],
+        "receipt_hashes": [],
+        "final_result_hash": "f" * 64,
+        "total_steps": 0,
+        "successful_steps": 0,
+        "failed_steps": 0,
+        "total_duration_ms": 0,
+        "created_at": datetime.utcnow().isoformat(),
+    })
     resp = await client.get(f"/v1/bundles/task/{task_id}")
     assert resp.status_code == 200
     assert resp.json()["task_id"] == task_id
@@ -526,7 +466,7 @@ async def test_settlement_invalid_transition_rejected(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient, activate_identity):
+async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient):
     task_id = "task-progress-regret-001"
     buyer = "buyer-progress-001"
     seller = "seller-progress-001"
@@ -555,8 +495,6 @@ async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient, activ
         "buyer_signature": "sig-progress-001",
     })
     voucher_id = voucher.json()["voucher_id"]
-    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
-    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
 
     # Settlement lifecycle to running.
@@ -606,7 +544,7 @@ async def test_progress_receipt_and_buyer_regret_flow(client: AsyncClient, activ
 
 
 @pytest.mark.asyncio
-async def test_progress_receipt_rejects_rollback_and_duplicate_hash_pair(client: AsyncClient, activate_identity):
+async def test_progress_receipt_rejects_rollback_and_duplicate_hash_pair(client: AsyncClient):
     task_id = "task-progress-guard-001"
     buyer = "buyer-progress-guard-001"
     seller = "seller-progress-guard-001"
@@ -632,8 +570,6 @@ async def test_progress_receipt_rejects_rollback_and_duplicate_hash_pair(client:
         "nonce": "nonce-progress-guard-001",
         "buyer_signature": "sig-progress-guard-001",
     })
-    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
-    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{voucher.json()['voucher_id']}/accept", json={"seller_identity_id": seller})
     await client.post("/v1/settlement/create", json={
         "task_id": task_id,
@@ -723,7 +659,7 @@ async def test_manual_partial_settlement(client: AsyncClient):
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_auto_arbitration_rule_buyer_wins_without_confirmed_progress(client: AsyncClient, activate_identity):
+async def test_auto_arbitration_rule_buyer_wins_without_confirmed_progress(client: AsyncClient):
     task_id = "task-auto-arbitrate-001"
     buyer = "buyer-001"
     seller = "seller-001"
@@ -755,8 +691,6 @@ async def test_auto_arbitration_rule_buyer_wins_without_confirmed_progress(clien
     )
     assert v.status_code == 201
     voucher_id = v.json()["voucher_id"]
-    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
-    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
 
     await client.post(
@@ -878,7 +812,7 @@ async def test_voucher_validates_sub_identity_parent_binding(client: AsyncClient
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient, activate_identity, monkeypatch):
+async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient):
     task_id = "task-arb-flow-001"
     buyer_id = "buyer-arb-001"
     seller_id = "seller-arb-001"
@@ -910,8 +844,6 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient, 
     )
     assert v.status_code == 201
     voucher_id = v.json()["voucher_id"]
-    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
-    await activate_identity(seller_id)
     await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller_id})
 
     await client.post(
@@ -931,172 +863,74 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient, 
     assert disputed.status_code == 200
     assert disputed.json()["status"] == "disputed"
 
-    # ---- 仲裁收紧后的正确用法（P0-1）-------------------------------------
-    # 平台运维岗用 API key 认证；仲裁员/当事人用身份头证明「我就是这个身份」。
-    OPERATOR = "arb-op"
-    OPS_KEY = "arb-op-secret-abcdef12"
-    PLAIN = "plain-user"
-    PLAIN_KEY = "plain-user-secret-abcdef12"
-    monkeypatch.setattr(settings, "auth_api_keys", f"{OPERATOR}:{OPS_KEY},{PLAIN}:{PLAIN_KEY}")
-    monkeypatch.setattr(settings, "admin_actor_ids", OPERATOR)
-    monkeypatch.setattr(settings, "arbitrator_actor_ids", OPERATOR)
-    monkeypatch.setattr(settings, "arbitration_pool_open_join", True)
-    ops_headers = {"X-Karma-Api-Key": f"karma_{OPERATOR}_{OPS_KEY}"}
-    # 已认证但不在白名单里的普通用户：用来证明「登录了」不等于「有权」。
-    plain_headers = {"X-Karma-Api-Key": f"karma_{PLAIN}_{PLAIN_KEY}"}
-
-    def as_identity(identity_id: str) -> dict[str, str]:
-        return {"X-Karma-Identity-Id": identity_id}
-
-    # 抵押必须盖住案值：这一单托管 100，所以仲裁员质押必须 > 100。
-    ARBITRATOR_STAKE = 150.0
-    # 先塞一个「抵押 10 却想裁 100」的人：他从入池到派庭都必须被拦在外面。
-    await client.post("/v1/capacity/arb-poor-001/lock", json={"amount": 20.0})
-    poor_join = await client.post(
-        "/v1/arbitration/pool/join",
-        json={"arbitrator_identity_id": "arb-poor-001", "stake_amount": 10.0},
-        headers=as_identity("arb-poor-001"),
-    )
-    assert poor_join.status_code == 200, poor_join.text
-
-    arbitrators = ["arb-001", "arb-002", "arb-003"]
-    for arbitrator in arbitrators:
-        # 质押必须有真实锁仓背书：先锁 500 USDC，再质押 150。
-        locked = await client.post(f"/v1/capacity/{arbitrator}/lock", json={"amount": 500.0})
-        assert locked.status_code == 200
-        joined = await client.post(
-            "/v1/arbitration/pool/join",
-            json={"arbitrator_identity_id": arbitrator, "stake_amount": ARBITRATOR_STAKE},
-            headers=as_identity(arbitrator),
-        )
-        assert joined.status_code == 200, joined.text
-
-    # 当事人自己也入池 —— 派庭时必须被回避掉（抵押给够，确保排除原因是「回避」而不是「钱不够」）。
-    await client.post(f"/v1/capacity/{buyer_id}/lock", json={"amount": 500.0})
-    buyer_pool = await client.post(
-        "/v1/arbitration/pool/join",
-        json={"arbitrator_identity_id": buyer_id, "stake_amount": ARBITRATOR_STAKE},
-        headers=as_identity(buyer_id),
-    )
-    assert buyer_pool.status_code == 200, buyer_pool.text
+    pool_1 = await client.post("/v1/arbitration/pool/join", json={
+        "arbitrator_identity_id": "arb-001",
+        "stake_amount": 10.0,
+    })
+    pool_2 = await client.post("/v1/arbitration/pool/join", json={
+        "arbitrator_identity_id": "arb-002",
+        "stake_amount": 8.0,
+    })
+    assert pool_1.status_code == 200
+    assert pool_2.status_code == 200
 
     created_case = await client.post("/v1/arbitration/cases", json={
         "task_id": task_id,
         "opened_by": buyer_id,
         "reason": "quality issue",
-        "required_arbitrators": 3,
-    }, headers=as_identity(buyer_id))
-    assert created_case.status_code == 201, created_case.text
+        "required_arbitrators": 2,
+    })
+    assert created_case.status_code == 201
     case_id = created_case.json()["case_id"]
     assert created_case.json()["status"] in {"open", "voting"}
 
-    assigned = await client.post(
-        f"/v1/arbitration/cases/{case_id}/assign-auto",
-        json={"count": 3},
-        headers=ops_headers,
-    )
-    assert assigned.status_code == 200, assigned.text
-    assigned_ids = {item["arbitrator_identity_id"] for item in assigned.json()}
-    assert len(assigned_ids) == 3
-    # 回避：当事人不能坐进自己的仲裁庭。
-    assert buyer_id not in assigned_ids
-    # 抵押盖不住案值的人（10 < 100）不能入庭，哪怕他先入池、排在候选队列最前面。
-    assert "arb-poor-001" not in assigned_ids
-
-    # 冒名投票：不是本人就不能替被指派的仲裁员投票。
-    impersonated_vote = await client.post(
-        f"/v1/arbitration/cases/{case_id}/vote",
-        json={"arbitrator_identity_id": arbitrators[0], "decision": "seller_wins"},
-        headers=as_identity("arb-404"),
-    )
-    assert impersonated_vote.status_code == 403, impersonated_vote.text
-
-    # 派庭之后把抵押减到盖不住案值：投票是真正的裁决动作，这时必须被拦住，
-    # 不能靠一张旧的指派记录硬投出去。
-    shrunk = await client.post(
-        "/v1/arbitration/pool/join",
-        json={"arbitrator_identity_id": arbitrators[2], "stake_amount": 10.0},
-        headers=as_identity(arbitrators[2]),
-    )
-    assert shrunk.status_code == 200, shrunk.text
-    undercollateralized_vote = await client.post(
-        f"/v1/arbitration/cases/{case_id}/vote",
-        json={"arbitrator_identity_id": arbitrators[2], "decision": "buyer_wins"},
-        headers=as_identity(arbitrators[2]),
-    )
-    assert undercollateralized_vote.status_code == 409, undercollateralized_vote.text
-    assert "does not cover the case value" in undercollateralized_vote.text
-    # 补足抵押后，这一票恢复正常。
-    refilled = await client.post(
-        "/v1/arbitration/pool/join",
-        json={"arbitrator_identity_id": arbitrators[2], "stake_amount": ARBITRATOR_STAKE},
-        headers=as_identity(arbitrators[2]),
-    )
-    assert refilled.status_code == 200, refilled.text
+    assigned = await client.post(f"/v1/arbitration/cases/{case_id}/assign-auto", json={"count": 2})
+    assert assigned.status_code == 200
+    assert len(assigned.json()) == 2
 
     material = await client.post(f"/v1/arbitration/cases/{case_id}/materials", json={
         "submitted_by": buyer_id,
         "bundle_id": "bundle-arb-001",
         "evidence_hashes": ["AA" * 32, "aa" * 32, "BB" * 32],
-    }, headers=as_identity(buyer_id))
-    assert material.status_code == 201, material.text
+    })
+    assert material.status_code == 201
     # Normalized: lowercase + dedupe + sort
     assert material.json()["evidence_hashes"] == ["aa" * 32, "bb" * 32]
 
-    for index, arbitrator in enumerate(arbitrators):
-        vote = await client.post(f"/v1/arbitration/cases/{case_id}/vote", json={
-            "arbitrator_identity_id": arbitrator,
-            "decision": "buyer_wins",
-            "rationale": "hash mismatch #%d" % index,
-        }, headers=as_identity(arbitrator))
-        assert vote.status_code == 200, vote.text
-        assert vote.json()["status"] in {"voting", "decided"}
+    vote_1 = await client.post(f"/v1/arbitration/cases/{case_id}/vote", json={
+        "arbitrator_identity_id": "arb-001",
+        "decision": "buyer_wins",
+        "rationale": "hash mismatch",
+    })
+    assert vote_1.status_code == 200
+    assert vote_1.json()["status"] in {"voting", "decided"}
 
-    final_case = await client.get(f"/v1/arbitration/cases/{case_id}", headers=as_identity(buyer_id))
-    assert final_case.status_code == 200
-    assert final_case.json()["status"] == "decided"
-    assert final_case.json()["decided_outcome"] == "buyer_wins"
+    vote_2 = await client.post(f"/v1/arbitration/cases/{case_id}/vote", json={
+        "arbitrator_identity_id": "arb-002",
+        "decision": "buyer_wins",
+        "rationale": "invalid format",
+    })
+    assert vote_2.status_code == 200
+    assert vote_2.json()["status"] == "decided"
+    assert vote_2.json()["decided_outcome"] == "buyer_wins"
 
-    executed = await client.post(
-        f"/v1/arbitration/cases/{case_id}/execute", json={}, headers=ops_headers
-    )
-    assert executed.status_code == 200, executed.text
+    executed = await client.post(f"/v1/arbitration/cases/{case_id}/execute", json={})
+    assert executed.status_code == 200
     assert executed.json()["status"] == "refunded"
     assert executed.json()["refunded_amount"] == 100.0
 
-    # 裁决写回结算必须留审计（此前这条路径不写 settlement_transition_audits）。
-    transitions = await client.get(f"/v1/settlement/{task_id}/transitions", headers=as_identity(buyer_id))
-    assert transitions.status_code == 200
-    arb_stages = [
-        row for row in transitions.json() if str(row["guard_stage"]).startswith("arbitration_")
-    ]
-    assert arb_stages, "仲裁路径没有写入流转审计"
-    # 立案（disputed→arbitrated）与执行（arbitrated→refunded）都必须留痕。
-    assert {row["to_status"] for row in arb_stages} >= {"arbitrated", "refunded"}
-    executed_stage = [row for row in arb_stages if row["guard_stage"] == "arbitration_execute"]
-    assert executed_stage and all(row["actor_id"] == OPERATOR for row in executed_stage)
-
-    events = await client.get(f"/v1/arbitration/cases/{case_id}/events?limit=100", headers=as_identity(buyer_id))
+    events = await client.get(f"/v1/arbitration/cases/{case_id}/events?limit=100")
     assert events.status_code == 200
     event_types = [item["event_type"] for item in events.json()]
     assert "case_created" in event_types
     assert "arbitrators_assigned" in event_types
-    assigned_event = next(
-        item for item in events.json() if item["event_type"] == "arbitrators_assigned"
-    )
-    # 留痕：当时是按多大案值筛的人、筛出几个合格候选（抵押不足的被过滤掉）。
-    assert assigned_event["metadata"]["case_value"] == 100.0
-    assert assigned_event["metadata"]["qualified_candidates"] == 3
     assert "material_submitted" in event_types
     assert "vote_cast" in event_types
     assert "case_decided" in event_types
     assert "case_executed" in event_types
 
-    ops_report = await client.get(
-        "/v1/arbitration/cases/ops/report?window_hours=24&recent_events_limit=100",
-        headers=ops_headers,
-    )
-    assert ops_report.status_code == 200, ops_report.text
+    ops_report = await client.get("/v1/arbitration/cases/ops/report?window_hours=24&recent_events_limit=100")
+    assert ops_report.status_code == 200
     ops_body = ops_report.json()
     assert ops_body["total_cases"] >= 1
     assert ops_body["status_counts"].get("executed", 0) >= 1
@@ -1108,15 +942,12 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient, 
 
     ops_alerts = await client.get(
         "/v1/arbitration/cases/ops/alerts"
-        "?window_hours=24&open_case_threshold=1&voting_case_threshold=1&decided_case_threshold=1&partial_ratio_threshold=0.1",
-        headers=ops_headers,
+        "?window_hours=24&open_case_threshold=1&voting_case_threshold=1&decided_case_threshold=1&partial_ratio_threshold=0.1"
     )
     assert ops_alerts.status_code == 200
     assert isinstance(ops_alerts.json(), list)
 
-    ops_arbitrators = await client.get(
-        "/v1/arbitration/cases/ops/arbitrators?window_hours=24&limit=20", headers=ops_headers
-    )
+    ops_arbitrators = await client.get("/v1/arbitration/cases/ops/arbitrators?window_hours=24&limit=20")
     assert ops_arbitrators.status_code == 200
     ops_arbitrators_body = ops_arbitrators.json()
     assert isinstance(ops_arbitrators_body, list)
@@ -1124,82 +955,10 @@ async def test_arbitration_pool_case_material_vote_execute(client: AsyncClient, 
 
     ops_overdue = await client.get(
         "/v1/arbitration/cases/ops/overdue"
-        "?limit=20&open_overdue_hours=1&voting_overdue_hours=1&decided_overdue_hours=1",
-        headers=ops_headers,
+        "?limit=20&open_overdue_hours=1&voting_overdue_hours=1&decided_overdue_hours=1"
     )
     assert ops_overdue.status_code == 200
     assert isinstance(ops_overdue.json(), list)
-
-    # ---- 收紧点回归：这些调用以前全都「成功」 ---------------------------
-    # 1) 冒名入池：把别人塞进仲裁池
-    impersonated = await client.post(
-        "/v1/arbitration/pool/join",
-        json={"arbitrator_identity_id": "arb-999", "stake_amount": 10.0},
-        headers=as_identity(arbitrators[0]),
-    )
-    assert impersonated.status_code == 403
-
-    # 3) 0 质押 / 无锁仓背书入池
-    zero_stake = await client.post(
-        "/v1/arbitration/pool/join",
-        json={"arbitrator_identity_id": "arb-005", "stake_amount": 0.0},
-        headers=as_identity("arb-005"),
-    )
-    assert zero_stake.status_code == 422
-    unbacked = await client.post(
-        "/v1/arbitration/pool/join",
-        json={"arbitrator_identity_id": "arb-006", "stake_amount": 10.0},
-        headers=as_identity("arb-006"),
-    )
-    assert unbacked.status_code == 409
-
-    # 4) 人数不能自填：一个人判掉一场争议
-    too_few = await client.post("/v1/arbitration/cases", json={
-        "task_id": task_id,
-        "opened_by": buyer_id,
-        "required_arbitrators": 1,
-    }, headers=as_identity(buyer_id))
-    assert too_few.status_code == 422
-
-    # 5) 派庭与执行必须是运维岗：登录了但没有白名单 = 403，没登录 = 401
-    outsider_assign = await client.post(
-        f"/v1/arbitration/cases/{case_id}/assign-auto",
-        json={"count": 1},
-        headers=plain_headers,
-    )
-    assert outsider_assign.status_code == 403, outsider_assign.text
-    anonymous_assign = await client.post(
-        f"/v1/arbitration/cases/{case_id}/assign-auto", json={"count": 1}
-    )
-    assert anonymous_assign.status_code == 401
-    outsider_execute = await client.post(
-        f"/v1/arbitration/cases/{case_id}/execute", json={}, headers=plain_headers
-    )
-    assert outsider_execute.status_code == 403
-
-    # 6) 案件详情/事件/材料不对第三方开放
-    third_party = await client.get(
-        f"/v1/arbitration/cases/{case_id}", headers=as_identity("nosy-third-party")
-    )
-    assert third_party.status_code == 403
-    third_party_events = await client.get(
-        f"/v1/arbitration/cases/{case_id}/events", headers=as_identity("nosy-third-party")
-    )
-    assert third_party_events.status_code == 403
-    third_party_ops = await client.get(
-        "/v1/arbitration/cases/ops/report", headers=plain_headers
-    )
-    assert third_party_ops.status_code == 403, third_party_ops.text
-    anonymous_ops = await client.get("/v1/arbitration/cases/ops/report")
-    assert anonymous_ops.status_code == 401
-
-    # 7) 非当事人不能立案
-    stranger_case = await client.post("/v1/arbitration/cases", json={
-        "task_id": task_id,
-        "opened_by": "nosy-third-party",
-        "required_arbitrators": 3,
-    }, headers=as_identity("nosy-third-party"))
-    assert stranger_case.status_code == 403
 
 
 # ---------------------------------------------------------------------------
@@ -1226,7 +985,7 @@ async def test_capacity_lock_and_release(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_voucher_accept_reserves_capacity(client: AsyncClient, activate_identity):
+async def test_voucher_accept_reserves_capacity(client: AsyncClient):
     buyer = "buyer-voucher-001"
     seller = "seller-voucher-001"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 200})
@@ -1255,8 +1014,6 @@ async def test_voucher_accept_reserves_capacity(client: AsyncClient, activate_id
     assert verify.status_code == 200
     assert verify.json()["can_start"] is True
 
-    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
-    await activate_identity(seller)
     accept = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={
         "seller_identity_id": seller
     })
@@ -1269,8 +1026,6 @@ async def test_voucher_accept_reserves_capacity(client: AsyncClient, activate_id
     assert body["available_credits"] == 50
     assert body["reserved_credits"] == 150
 
-    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
-    await activate_identity(seller)
     second_accept = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={
         "seller_identity_id": seller
     })
@@ -1278,7 +1033,7 @@ async def test_voucher_accept_reserves_capacity(client: AsyncClient, activate_id
 
 
 @pytest.mark.asyncio
-async def test_responsibility_graph_detects_mutual_exchange_from_voucher_accept(client: AsyncClient, activate_identity):
+async def test_responsibility_graph_detects_mutual_exchange_from_voucher_accept(client: AsyncClient):
     buyer = "buyer-loop-001"
     seller = "seller-loop-001"
     await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 100})
@@ -1300,8 +1055,6 @@ async def test_responsibility_graph_detects_mutual_exchange_from_voucher_accept(
     assert create.status_code == 201
     voucher_id = create.json()["voucher_id"]
 
-    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
-    await activate_identity(seller)
     accepted = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
     assert accepted.status_code == 200
 

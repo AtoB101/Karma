@@ -43,14 +43,6 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 15  # 15 minutes
 
 
-def _jwt_secret_keys() -> list[str]:
-    """可用来验 JWT 的签发钥：当前钥 + （过渡期内的）上一把钥。"""
-    keys = [settings.app_secret_key]
-    if settings.secret_rotation_active():
-        keys.append(settings.app_secret_key_previous)
-    return keys
-
-
 def create_access_token(subject: str, expires_delta: Optional[timedelta] = None) -> str:
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     payload = {"sub": subject, "exp": expire, "iat": datetime.utcnow()}
@@ -58,23 +50,20 @@ def create_access_token(subject: str, expires_delta: Optional[timedelta] = None)
 
 
 def decode_access_token(token: str) -> dict:
-    last_error: Exception | None = None
-    for key in _jwt_secret_keys():
-        try:
-            return jwt.decode(token, key, algorithms=[ALGORITHM])
-        except JWTError as e:
-            last_error = e
-    env = (settings.app_env or "").lower()
-    detail = (
-        f"Invalid token: {last_error}"
-        if env in ("development", "dev", "local", "test")
-        else "Invalid or expired token"
-    )
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail=detail,
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    try:
+        return jwt.decode(token, settings.app_secret_key, algorithms=[ALGORITHM])
+    except JWTError as e:
+        env = (settings.app_env or "").lower()
+        detail = (
+            f"Invalid token: {e}"
+            if env in ("development", "dev", "local", "test")
+            else "Invalid or expired token"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=detail,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -163,45 +152,9 @@ def validate_api_key_for_agent(agent_id: str, api_key: str) -> bool:
     return resolved_agent_id == agent_id
 
 
-_API_KEY_PREFIX = "karma_"
-
-
-def _known_agent_ids() -> set[str]:
-    """Actor ids a ``karma_<id>_<secret>`` header may be resolved against.
-
-    Configured ``AUTH_API_KEYS`` actors plus every agent a bootstrap key was minted
-    for. Returns ids only — never a secret.
-    """
-    ids = set(settings.auth_api_keys_map().keys())
-    try:
-        from services.agent_bootstrap_credentials import known_agent_ids
-
-        ids |= known_agent_ids()
-    except Exception:  # noqa: BLE001
-        pass
-    return ids
-
-
 def _parse_api_key(api_key: str) -> Optional[tuple[str, str]]:
-    """Split ``karma_<agent_id>_<secret>`` without guessing where the id ends.
-
-    Neither half is delimiter-free: platform identity ids look like
-    ``kid_2b8b6dfca420c96a1409b8fd``, and minted secrets are url-safe base64. So
-    ``api_key.split("_", 2)`` collapses every ``kid_*`` identity onto the single
-    actor ``kid`` — fail-closed, but the actor named is silently wrong, and any
-    actor literally called ``kid`` becomes a shared-key alias. Resolve the actor by
-    longest-known-prefix match instead, and keep the legacy split only as the
-    last resort that the dev-key fallback path needs.
-    """
-    if not api_key.startswith(_API_KEY_PREFIX):
+    if not api_key.startswith("karma_"):
         return None
-    body = api_key[len(_API_KEY_PREFIX):]
-    best: Optional[str] = None
-    for agent_id in _known_agent_ids():
-        if body.startswith(agent_id + "_") and (best is None or len(agent_id) > len(best)):
-            best = agent_id
-    if best is not None:
-        return best, body[len(best) + 1:]
     parts = api_key.split("_", 2)
     if len(parts) < 3:
         return None
@@ -220,25 +173,6 @@ async def get_optional_agent_id(
         return await get_current_agent_id(bearer, api_key)
     except HTTPException:
         return None
-
-
-def resolve_agent_id_from_request(request: Request) -> Optional[str]:
-    """
-    Resolve the acting identity for a request.
-
-    A Request built by the Runtime Gateway (services/runtime_synthetic_request.py) already
-    carries a *verified* actor on request.state, because the gateway authenticated the
-    Runtime Key itself. Everything else resolves from headers.
-    """
-    from services.runtime_synthetic_request import runtime_actor_id
-
-    delegated = runtime_actor_id(request)
-    if delegated:
-        return delegated
-    return resolve_agent_id_from_auth_headers(
-        authorization=request.headers.get("authorization"),
-        api_key=request.headers.get("x-karma-api-key"),
-    )
 
 
 def resolve_agent_id_from_auth_headers(

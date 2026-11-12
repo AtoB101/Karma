@@ -10,12 +10,12 @@ import time
 from web3 import Web3
 from eth_account import Account
 
-RPC = "https://ethereum-sepolia-rpc.publicnode.com"
+RPC = os.environ.get("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
 USDC = "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF"
-BUYER_KEY = os.environ.get("SEPOLIA_BUYER_KEY", "")
-SELLER_KEY = os.environ.get("SEPOLIA_AGENT_KEY", "")
+BUYER_KEY = os.environ.get("E2E_BUYER_KEY", "")
+SELLER_KEY = os.environ.get("E2E_SELLER_KEY", "")
 if not BUYER_KEY or not SELLER_KEY:
-    raise SystemExit("Required env vars: SEPOLIA_BUYER_KEY, SEPOLIA_AGENT_KEY")
+    raise SystemExit("Set E2E_BUYER_KEY and E2E_SELLER_KEY (Sepolia test wallets)")
 
 w3 = Web3(Web3.HTTPProvider(RPC))
 assert w3.is_connected()
@@ -65,7 +65,7 @@ print("deployed KarmaBilateral:", kb.address)
 
 # ── 2. Wire: allow token + zero the windows for a fast E2E ──
 send(admin, kb.functions.setTokenAllowed(Web3.to_checksum_address(USDC), True))
-send(admin, kb.functions.setSettleDelay(0))            # settle delay = 0
+send(admin, kb.functions.setDisputeWindow(0))            # settle delay = 0
 send(admin, kb.functions.setOptimisticDisputeWindow(0))  # dispute window = 0
 
 # ── 3. Fund seller with penalty + approve both ──

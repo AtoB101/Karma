@@ -1,8 +1,3 @@
-> **[LEGACY CONSOLE REMOVED]** This document describes the old multi-page console
-> (Receiving / Payments / Agents / Evidence / Disputes / Trade / Dashboard / MVVS /
-> Verifier Explorer / OpenClaw Connect). Those pages were deleted; the public console
-> is now the single-page Cyber Console at `apps/console/pages/cyber/index.html`.
-
 # Console 最后一公里 — 前后端真实交互
 
 > 静态 Console（`apps/console/`）已接通 Karma HTTP API：读状态轮询 + 写操作按钮。
@@ -20,6 +15,8 @@ python3 -m http.server 8787
 # 3. 配置（复制示例）
 cp apps/console/config.example.js apps/console/config.js
 # 编辑 KARMA_API_BASE、KARMA_BFF_PUBLIC_BASE、API Key
+# 比特派连接：后端设置 WC_PROJECT_ID 环境变量（https://cloud.walletconnect.com 创建），前端可省略
+# 本地静态调试也可在 config.js 写 window.KARMA_WC_PROJECT_ID 覆盖
 ```
 
 ## 页面与能力

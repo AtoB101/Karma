@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import ipaddress
 import json
 import sys
 import time
@@ -24,12 +23,7 @@ def main() -> int:
     from sdk.x402.client import X402Client
     from sdk.x402.executors import MockX402PaymentExecutor
     from sdk.x402.models import PaymentRequiredDocument
-    import sdk.x402.url_safety as url_safety
     import base64
-
-    # The URL guard resolves hostnames now; this benchmark is hermetic, so pin
-    # the name to a public address instead of depending on real DNS.
-    _public_dns = lambda host: [ipaddress.ip_address("93.184.216.34")]
 
     doc = PaymentRequiredDocument(
         x402Version=1,
@@ -60,9 +54,7 @@ def main() -> int:
         import asyncio
 
         async def _one():
-            with patch("sdk.x402.client.httpx.AsyncClient", return_value=mock_client), patch.object(
-                url_safety, "resolve_host_ips", _public_dns
-            ):
+            with patch("sdk.x402.client.httpx.AsyncClient", return_value=mock_client):
                 c = X402Client(MockX402PaymentExecutor())
                 r = await c.pay_and_fetch("https://benchmark.example/resource", max_budget_usdc=10.0)
                 return r.external_payment is not None

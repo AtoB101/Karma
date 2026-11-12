@@ -19,9 +19,9 @@ contract OffchainCompromiseTest is Test {
     address internal db = makeAddr("compromised-db-writer");
 
     function setUp() public {
+        usdc = new MockERC20();
         vm.startPrank(admin);
         karma = new KarmaBilateral(admin);
-        usdc = new MockERC20();
         karma.setTokenAllowed(address(usdc), true);
         vm.stopPrank();
         usdc.mint(buyer, 1_000_000_000);
@@ -39,7 +39,7 @@ contract OffchainCompromiseTest is Test {
         uint256 ab = karma.lock(address(usdc), 10_000_000);
         vm.prank(buyer);
         uint256 id = karma.bind(bb, ab, keccak256("t"));
-        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
+        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
 
         address[3] memory attackers = [backend, verifier, db];
         for (uint256 i; i < attackers.length; i++) {
@@ -74,9 +74,8 @@ contract OffchainCompromiseTest is Test {
         uint256 ab = karma.lock(address(usdc), 10_000_000);
         vm.prank(buyer);
         uint256 id = karma.bind(bb, ab, keccak256("t"));
-        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(verifier);
-        vm.expectRevert(KarmaBilateral.TEEVerifierNotSet.selector);
+        vm.expectRevert(KarmaBilateral.TEENotImplemented.selector);
         karma.settleWithTEE(id, keccak256("attestation"), hex"00");
     }
 }

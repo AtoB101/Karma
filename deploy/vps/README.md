@@ -22,52 +22,8 @@ bash deploy/vps/bootstrap.sh   # Docker + 防火墙(22/80/443) + fail2ban + swap
 
 ## CI 自动部署（push 到 main）
 
-需要 repo Secrets：`VPS_HOST` / `VPS_SSH_USER` / `VPS_SSH_KEY`，
-以及 repo Variable `VPS_DEPLOY_ENABLED=true`（不设就只跑单测，deploy 那步跳过）。
-
-`deploy-vps.yml`：单测 + import 冒烟 → SSH 执行
-`/opt/karma/repo/deploy/vps/ci-deploy.sh` 滚动更新。
-
-那个脚本内部调 `karma deploy`：拉代码 → 跑数据库迁移 → 发布静态站与操作台 → 重建容器（**不 build**）
-→ 健康检查，并自动备份 webroots 到 `/opt/karma/backups/`。
-不用 `deploy/vps/deploy.sh` 是因为它会 `--build` 重建镜像 —— 1.6G 的机器上太慢，
-而生产代码是 bind mount 进容器的，改代码不需要重新构建镜像。
-
-## 数据库迁移
-
-`karma deploy` / `karma update --apply` 会在**重建容器之前**自动执行 `alembic upgrade head`，
-所以代码和表结构不会脱节。也可以单独跑：
-
-```bash
-karma migrate     # = 一次性 app 容器里跑 alembic upgrade head
-```
-
-迁移**不在**运行中的 `karma-api` 里 `docker exec`，而是 `docker compose run --rm
---no-deps app alembic upgrade head`：`docker exec` 用的是容器创建那一刻的 env，
-所以「新增一条生产必填开关」的部署会卡死在导入 settings 那一步（新 `.env` 只有
-重建容器时才生效，而重建在这步之后）。一次性容器读的是 `/opt/karma/.env` 现值。
-`karma db-baseline` 同理。
-
-**首次基线**：如果这个库的表结构是历史上 `create_all` + 启动补列建出来的
-（`alembic_version` 表不存在），`upgrade head` 会从 base 重放全部迁移，撞上
-`relation "..." already exists` 然后整个部署中止。这种情况先声明一次现状：
-
-```bash
-karma db-baseline 0047_identity_provider   # 只写版本表，不动数据与表结构
-karma migrate                              # 之后只跑更新的迁移
-```
-
-`karma migrate` 检测到没有版本表时会直接停下来并打印这两行，不会硬跑。
-
-跑 `karma migrate` / `karma db-baseline` 之前会先把 `alembic_version.version_num` 放宽到
-`VARCHAR(255)`：alembic 自己建这张表时用的是 `VARCHAR(32)`，而本仓库的 revision id 比这长，
-写版本号那一下会抛 `StringDataRightTruncation` —— 表全建完、事务回滚，看上去像「迁移写坏了」，
-而且这个库之后永远迁不动。基线（`db-baseline`）出来的库从没跑过 0050 里那句 ALTER，所以这一步
-不能只留在迁移里（2026-10-13 沙箱库 `karma_testnet` 实测）。已经够宽的库不会出声。
-
-迁移跑在 app 容器里，因为 `alembic.ini` 里的 URL 是占位值，真实 URL 由
-`db/migrations/env.py` 从 `.env` 读（容器网络里数据库主机名是 `postgres`）。
-迁移失败时脚本直接中止，不会重建容器 —— 线上仍跑旧代码，不会半新半旧。
+GitHub repo Secrets 配置：`VPS_HOST` / `VPS_SSH_USER` / `VPS_SSH_KEY`。
+`deploy-vps.yml`：单测 + import 冒烟 → SSH 执行 `/opt/karma/deploy.sh` 滚动更新。
 
 ## 域名要求
 
@@ -80,20 +36,3 @@ Telegram webhook 强制 HTTPS，需要一个域名解析到服务器（Caddy 自
 - 自动安全更新
 - `.env` 权限 600，机密永不入库
 - 部署验证后：SSH 禁密码登录、禁 root 登录
-
-## 生产闸门自检（karma env-gates）
-
-生产必填项的唯一来源是仓库里的 `config/production_gates.py`（`config/settings.py`
-在 `APP_ENV=production` 下会拒绝的每一条都登记在那里）。用同一份清单核对服务器上
-真正生效的 `.env`：
-
-```bash
-karma env-gates
-```
-
-- 缺键 / 取值不对 / 占位项（密钥、actor 白名单）为空，都会逐条列出来并返回非 0；
-- 值**从不回显**：`.env` 只被喂进 app 容器，容器里只回 `TAG / KEY / EXPECTED` 三列；
-- 想直接用：`docker exec -i karma-api python -m config.production_gates < /opt/karma/.env`；
-- 仓库侧还有一张 CI 门禁 `tests/unit/test_production_gate_manifest_parity.py`：
-  新增闸门要是漏了清单、脚本或 `.env` 模板，CI 直接红。
-

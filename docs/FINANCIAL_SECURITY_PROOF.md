@@ -31,8 +31,7 @@ Listed in `security/registry/README.md` + red-team `security/redteam/2026-08-27-
 
 INV-1 … INV-10 in YAML; forge tests named `test_INV*`.
 
-
-On-chain escrow conservation: `checkInvariant(token)` enforces `ERC20.balanceOf(address(this)) == totalLocked[token]` and reverts `InvariantBroken(token, balance, locked)` on divergence. Forge coverage: `test/InvariantConservation.t.sol`.
+On-chain escrow conservation: checkInvariant(token) enforces ERC20.balanceOf(address(this)) == totalLocked[token] and reverts InvariantBroken(token, balance, locked) on divergence. Forge coverage: 	est/InvariantConservation.t.sol.
 
 ## F. Circuit Breaker
 

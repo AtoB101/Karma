@@ -5,8 +5,6 @@ Uses only a Runtime Key (never wallet private keys). See ``docs/runtime-key-guid
 """
 from __future__ import annotations
 
-import asyncio
-import base64
 import hashlib
 import hmac
 import inspect
@@ -14,103 +12,12 @@ import json
 import os
 import time
 import uuid
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, TypeVar
 
 import httpx
 
-DEFAULT_RUNTIME_URL = "https://karma-network.ai"
-
 T = TypeVar("T")
-
-
-def runtime_key_id(token: str) -> str:
-    """从 KRM_RT_<key_id>_<secret> 里取出 key_id（签名消息要用）。"""
-    raw = (token or "").strip()
-    if not raw.startswith("KRM_RT_"):
-        return ""
-    rest = raw[len("KRM_RT_"):]
-    head, _, _ = rest.partition("_")
-    return head
-
-
-def agent_key_from_seed(seed: str):
-    """base64(raw 32 字节种子) 或 64 位 hex → Ed25519PrivateKey。
-
-    私钥只在 agent 进程里；Karma 服务端只存公钥，永远拿不到它。
-    """
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-
-    text = (seed or "").strip()
-    if not text:
-        raise ValueError("agent private key is empty")
-    if len(text) == 64 and all(c in "0123456789abcdefABCDEF" for c in text):
-        raw = bytes.fromhex(text)
-    else:
-        raw = base64.b64decode(text, validate=True)
-    if len(raw) != 32:
-        raise ValueError("agent private key must be 32 raw bytes (base64 or hex seed)")
-    return Ed25519PrivateKey.from_private_bytes(raw)
-
-
-def build_agent_request_message(
-    *,
-    key_id: str,
-    method: str,
-    path: str,
-    timestamp: str,
-    nonce: str,
-    body_sha256: str,
-) -> str:
-    """服务端 services.runtime_wallet.build_agent_request_message 的镜像。
-
-    SDK 要能单独拿走用，所以不 import 服务端代码；两边格式由
-    tests/unit/test_runtime_key_signing.py 钉住，改一边测试就会红。
-    """
-    return "\n".join(
-        [
-            "Karma Runtime Request",
-            f"key_id:{key_id}",
-            f"method:{method.upper()}",
-            f"path:{path}",
-            f"timestamp:{timestamp}",
-            f"nonce:{nonce}",
-            f"body_sha256:{body_sha256}",
-        ]
-    )
-
-
-def build_agent_pairing_request_message(
-    *, agent_name: str, public_key: str, nonce: str, timestamp: str
-) -> str:
-    """服务端 services.runtime_wallet.build_agent_pairing_request_message 的镜像。
-
-    agent 申请接入时用它自己的 Ed25519 私钥签这段文字 —— 公钥从「申报」变成
-    「持有证明」。时间戳规范成 UTC 秒（YYYY-MM-DDTHH:MM:SSZ）。
-    """
-    return "\n".join(
-        [
-            "Karma Agent Pairing Request",
-            f"agent_name:{agent_name}",
-            f"public_key:{public_key}",
-            f"nonce:{nonce}",
-            f"timestamp:{timestamp}",
-        ]
-    )
-
-
-def sign_pairing_request(*, key: Any, agent_name: str, public_key: str) -> dict[str, str]:
-    """申请接入要带的三件套：签名 + nonce + 时间戳（附带在 /request 请求体里）。"""
-    nonce = uuid.uuid4().hex
-    timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    message = build_agent_pairing_request_message(
-        agent_name=agent_name, public_key=public_key, nonce=nonce, timestamp=timestamp
-    )
-    return {
-        "signature": base64.b64encode(key.sign(message.encode("utf-8"))).decode(),
-        "nonce": nonce,
-        "timestamp": timestamp,
-    }
 
 
 def _sha256_hex(data: Any) -> str:
@@ -145,12 +52,10 @@ class KarmaRuntime:
         self,
         *,
         runtime_key: str,
-        runtime_url: str = DEFAULT_RUNTIME_URL,
+        runtime_url: str = "https://runtime.karma.network",
         expected_chain_id: int | None = None,
         timeout: float = 120.0,
         app_secret_for_hmac: str | None = None,
-        agent_private_key: str | None = None,
-        agent_id: str | None = None,
     ):
         self.runtime_key = runtime_key.strip()
         self.runtime_url = runtime_url.rstrip("/")
@@ -172,182 +77,16 @@ class KarmaRuntime:
         self._submitted_receipt_ids: set[str] = set()
         self._receipt_steps: dict[str, int] = {}
         self._cached_identity: str | None = None
-        self.key_id = runtime_key_id(self.runtime_key)
-        self.agent_id = (
-            agent_id if agent_id is not None else os.environ.get("KARMA_AGENT_ID") or ""
-        ).strip()
-        seed = (
-            agent_private_key
-            if agent_private_key is not None
-            else os.environ.get("KARMA_AGENT_PRIVATE_KEY") or ""
-        )
-        self._agent_key = agent_key_from_seed(seed) if (seed or "").strip() else None
-        # 只有确认这把 key 已经绑了公钥才发签名：未绑的 key 带签名服务端会 403。
-        self._sign_enabled = False
-        # 服务端回执里的待确认接入申请（agent 申请了但主人还没输码确认）。
-        self._pending_activation: dict[str, Any] | None = None
 
     @classmethod
     def from_env(cls) -> "KarmaRuntime":
         key = (os.environ.get("KARMA_RUNTIME_KEY") or "").strip()
-        url = (os.environ.get("KARMA_RUNTIME_URL") or DEFAULT_RUNTIME_URL).strip()
+        url = (os.environ.get("KARMA_RUNTIME_URL") or "https://runtime.karma.network").strip()
         if not key:
             raise ValueError("KARMA_RUNTIME_KEY is not set")
         chain_raw = os.environ.get("KARMA_EXPECTED_CHAIN_ID", "").strip()
         chain = int(chain_raw) if chain_raw.isdigit() else None
-        return cls(
-            runtime_key=key,
-            runtime_url=url,
-            expected_chain_id=chain,
-            agent_id=(os.environ.get("KARMA_AGENT_ID") or "").strip() or None,
-        )
-
-    # --- agent 公钥绑定 -------------------------------------------------
-
-    @property
-    def agent_public_key(self) -> str:
-        """本机 agent 的 Ed25519 公钥（base64 raw 32 字节）；没配私钥就返回空串。"""
-        if self._agent_key is None:
-            return ""
-        from cryptography.hazmat.primitives import serialization
-
-        raw = self._agent_key.public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
-        )
-        return base64.b64encode(raw).decode()
-
-    def _client(self) -> httpx.AsyncClient:
-        """所有请求都过签名钩子 —— 绑过公钥的 key 少了签名服务端直接 401。"""
-        return httpx.AsyncClient(
-            timeout=self.timeout, event_hooks={"request": [self._sign_request]}
-        )
-
-    async def _sign_request(self, request: httpx.Request) -> None:
-        # httpx 0.28 的 AsyncClient 会 await 每个 request 钩子，所以这里必须是 async。
-        if not self._sign_enabled or self._agent_key is None:
-            return
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        nonce = uuid.uuid4().hex
-        body = request.content or b""
-        message = build_agent_request_message(
-            key_id=self.key_id,
-            method=request.method,
-            path=request.url.path,
-            timestamp=timestamp,
-            nonce=nonce,
-            body_sha256=hashlib.sha256(body).hexdigest(),
-        )
-        signature = base64.b64encode(self._agent_key.sign(message.encode("utf-8"))).decode()
-        request.headers["X-Karma-Agent-Signature"] = signature
-        request.headers["X-Karma-Runtime-Timestamp"] = timestamp
-        request.headers["X-Karma-Runtime-Nonce"] = nonce
-
-    def has_agent_key(self) -> bool:
-        return self._agent_key is not None
-
-    def signing_enabled(self) -> bool:
-        return self._sign_enabled
-
-    async def bind_key(self, *, agent_id: str | None = None) -> dict[str, Any]:
-        """申请把自己的 Ed25519 公钥钉在这把 Runtime Key 上 —— 这一步只拿到匹配码。
-
-        返回里 ``status`` 是 ``pending_activation`` 时，绑定**还没生效**：payload 里的
-        ``activation_code`` 就是要交回主人的那串码，主人在 Karma 操作台输入并签名确认
-        之后绑定才落库。在那之前本 SDK 不会打开请求签名 —— 服务端对未绑定的 key
-        带了签名是直接 403 的。
-
-        拿到码以后有两条路：
-        * 把码显示给主人（``activation_code`` + ``activation_code_hint``）；
-        * 主人确认后用 ``await_binding_activation()`` 等它生效。
-
-        主人一直不确认的话，重新调 ``bind_key()`` 会拿到新码（旧的作废）。
-
-        ``status`` 是 ``active`` 表示这把 key 早就绑在同一把公钥上了（幂等重放，不发新码），
-        这时候直接打开签名即可。
-
-        agent_id 取参数，其次 KARMA_AGENT_ID，最后问服务端这把 key 是铸给谁的。
-        """
-        if self._agent_key is None:
-            raise RuntimeError(
-                "KARMA_AGENT_PRIVATE_KEY is not set; cannot bind an agent public key"
-            )
-        target = (agent_id or self.agent_id or "").strip()
-        if not target:
-            info = await self.get_permissions()
-            target = str(info.get("agent_binding") or "").strip()
-        if not target:
-            raise RuntimeError(
-                "agent_id is required to bind (set KARMA_AGENT_ID or pass agent_id=...)"
-            )
-        payload = {
-            "agent_id": target,
-            "agent_public_key": self.agent_public_key,
-            "client_nonce": uuid.uuid4().hex,
-        }
-        async with self._client() as http:
-            r = await http.post(
-                f"{self.runtime_url}/runtime/bind-key", headers=self._headers, json=payload
-            )
-        out = self._parse_response(r)
-        self.agent_id = target
-        if not isinstance(out, dict):
-            raise RuntimeError("unexpected bind-key payload")
-        if str(out.get("status") or "") == "active":
-            self._sign_enabled = True
-        else:
-            # 待主人输码：绑定没生效，这时候打开签名只会让后续请求吃 403。
-            self._sign_enabled = False
-        self._pending_activation = out
-        return out
-
-    @property
-    def pending_activation(self) -> dict[str, Any] | None:
-        """还没被主人确认的接入申请（含 activation_code）。没有就是 None。"""
-        if self._pending_activation is None:
-            return None
-        if str(self._pending_activation.get("status") or "") == "active":
-            return None
-        return self._pending_activation
-
-    async def await_binding_activation(
-        self, *, timeout_seconds: float = 180.0, interval_seconds: float = 5.0
-    ) -> dict[str, Any]:
-        """等主人在操作台输入匹配码。生效了就打开签名并返回权限信息。
-
-        超时抛 ``TimeoutError`` —— 匹配码 3 分钟就过期，别在这儿无声无息地等下去。
-        过期不用重铸钥匙：让 agent 重新 ``bind_key()`` 申请一次，拿新码给主人。
-        """
-        deadline = time.monotonic() + max(0.0, timeout_seconds)
-        while True:
-            try:
-                info = await self.get_permissions()
-            except RuntimeError:
-                # 刚好在这一轮生效：服务端开始要求签名，_parse_response 已经顺手把签名打开了，
-                # 再请求一次就带签名了。别把这种「已经生效」当成失败抛出去。
-                if not self._sign_enabled:
-                    raise
-                info = await self.get_permissions()
-            if str(info.get("key_binding") or "service") == "agent":
-                self._sign_enabled = True
-                self._pending_activation = None
-                return info
-            if time.monotonic() >= deadline:
-                raise TimeoutError(
-                    "binding is still pending: the key owner has not confirmed the "
-                    "activation code in the Karma console"
-                )
-            await asyncio.sleep(max(0.5, interval_seconds))
-
-    async def ensure_bound(self) -> dict[str, Any]:
-        """启动时调一次：已生效就打开签名；没绑就去申请（待确认时返回带码的 payload）。"""
-        info = await self.get_permissions()
-        if str(info.get("key_binding") or "service") == "agent":
-            self._sign_enabled = True
-            return info
-        out = await self.bind_key(agent_id=str(info.get("agent_binding") or "").strip() or None)
-        if str(out.get("status") or "") != "active":
-            return out
-        return await self.get_permissions()
+        return cls(runtime_key=key, runtime_url=url, expected_chain_id=chain)
 
     def _parse_response(self, resp: httpx.Response) -> Any:
         text = resp.text
@@ -357,32 +96,10 @@ class KarmaRuntime:
             raise RuntimeError("runtime response is not valid JSON") from exc
         if resp.is_error:
             detail = data.get("detail") if isinstance(data, dict) else data
-            if (
-                resp.status_code == 401
-                and self._agent_key is not None
-                and not self._sign_enabled
-                and "X-Karma-Agent-Signature" in str(detail)
-            ):
-                # 这把 key 是绑过公钥的：打开签名后重试即可（也可以启动时先 await ensure_bound()）。
-                self._sign_enabled = True
-                raise RuntimeError(
-                    f"HTTP {resp.status_code}: {detail} — agent signing enabled, retry the call"
-                )
             raise RuntimeError(f"HTTP {resp.status_code}: {detail}")
-        if self._app_secret_for_hmac:
-            sig = resp.headers.get("X-Karma-Response-Signature")
-            sig_v2 = resp.headers.get("X-Karma-Response-Signature-V2")
-            if sig:
-                try:
-                    _verify_hmac(body_text=text, signature_header=sig, secret=self._app_secret_for_hmac)
-                except RuntimeError as primary_error:
-                    # 双 key 过渡期：主头是旧钥签的，新 SDK（持新钥）改验附加头。
-                    if sig_v2:
-                        _verify_hmac(body_text=text, signature_header=sig_v2, secret=self._app_secret_for_hmac)
-                    else:
-                        raise primary_error
-            elif sig_v2:
-                _verify_hmac(body_text=text, signature_header=sig_v2, secret=self._app_secret_for_hmac)
+        sig = resp.headers.get("X-Karma-Response-Signature")
+        if self._app_secret_for_hmac and sig:
+            _verify_hmac(body_text=text, signature_header=sig, secret=self._app_secret_for_hmac)
         return data
 
     async def _identity(self) -> str:
@@ -396,17 +113,11 @@ class KarmaRuntime:
         return await self.get_permissions()
 
     async def get_permissions(self) -> dict[str, Any]:
-        async with self._client() as http:
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
             r = await http.get(f"{self.runtime_url}/runtime/permissions", headers=self._headers)
         data = self._parse_response(r)
         if not isinstance(data, dict):
             raise RuntimeError("unexpected permissions payload")
-        # 服务端告诉我们这把 key 已经绑过公钥 → 之后每个请求都要签名。
-        if (
-            str(data.get("key_binding") or "service") == "agent"
-            and self._agent_key is not None
-        ):
-            self._sign_enabled = True
         if self.expected_chain_id is not None and int(data.get("chain_id") or 0) != int(
             self.expected_chain_id
         ):
@@ -414,104 +125,12 @@ class KarmaRuntime:
         return data
 
     async def get_capacity(self) -> dict[str, Any]:
-        async with self._client() as http:
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
             r = await http.get(f"{self.runtime_url}/runtime/capacity", headers=self._headers)
         return self._parse_response(r)
 
-    async def get_policy(self) -> dict[str, Any]:
-        """读主人划的边界：单笔/每日上限、哪些自己做主、哪些要人工确认。
-
-        agent 开工前先读这一条 —— 边界全在服务端算，SDK 只是如实转达。
-        """
-        async with self._client() as http:
-            r = await http.get(f"{self.runtime_url}/runtime/policy", headers=self._headers)
-        return self._parse_response(r)
-
-    async def discover(
-        self,
-        *,
-        requirement_text: str,
-        amount: float | None = None,
-        limit: int = 10,
-        client_nonce: str | None = None,
-    ) -> dict[str, Any]:
-        """按一句话需求发现能办事的 agent / 商家（只读，不动钱）。"""
-        payload: dict[str, Any] = {
-            "requirement_text": requirement_text,
-            "limit": int(limit),
-            "client_nonce": client_nonce or uuid.uuid4().hex,
-        }
-        if amount is not None:
-            payload["amount"] = float(amount)
-        async with self._client() as http:
-            r = await http.post(
-                f"{self.runtime_url}/runtime/discover", headers=self._headers, json=payload
-            )
-        return self._parse_response(r)
-
-    async def place_order(
-        self,
-        *,
-        requirement_text: str,
-        amount: float,
-        seller_identity_id: str | None = None,
-        auto_complete: bool = False,
-        negotiate_a2a: bool = True,
-        client_nonce: str | None = None,
-        confirmation_session_id: str | None = None,
-        important_fields_capture_id: str | None = None,
-    ) -> dict[str, Any]:
-        """在主人划的额度内自己下单。
-
-        三种结果：
-
-        * 正常建单 —— 返回里有 ``task_id`` / ``voucher_id``，钱要验收通过才划转。
-        * ``status == "awaiting_owner_confirmation"`` —— 超了自动额度，已停下等你主人在
-          操作台点确认（这一步没有建单、没有扣额度）。返回里的 ``confirmation_session_id``
-          就是那一笔待确认；主人点完「确认」后，带上它重试本方法即可继续。
-        * 抛 ``RuntimeError``（HTTP 403）—— 超了单笔/每日硬上限，别重试，去问主人。
-        """
-        payload: dict[str, Any] = {
-            "requirement_text": requirement_text,
-            "amount": float(amount),
-            "negotiate_a2a": bool(negotiate_a2a),
-            "auto_complete": bool(auto_complete),
-            "client_nonce": client_nonce or uuid.uuid4().hex,
-        }
-        if seller_identity_id:
-            payload["seller_identity_id"] = seller_identity_id
-        if confirmation_session_id:
-            payload["confirmation_session_id"] = confirmation_session_id
-        if important_fields_capture_id:
-            payload["important_fields_capture_id"] = important_fields_capture_id
-        async with self._client() as http:
-            r = await http.post(
-                f"{self.runtime_url}/runtime/place-order", headers=self._headers, json=payload
-            )
-        return self._parse_response(r)
-
-    async def check_voucher(
-        self,
-        *,
-        voucher_id: str,
-        expected_amount: float | None = None,
-        client_nonce: str | None = None,
-    ) -> dict[str, Any]:
-        """卖方接单：核验买方的付款凭证真实、已锁定（这一步不是口头答应，是接单）。"""
-        payload: dict[str, Any] = {
-            "voucher_id": voucher_id,
-            "client_nonce": client_nonce or uuid.uuid4().hex,
-        }
-        if expected_amount is not None:
-            payload["expected_amount"] = float(expected_amount)
-        async with self._client() as http:
-            r = await http.post(
-                f"{self.runtime_url}/runtime/check-voucher", headers=self._headers, json=payload
-            )
-        return self._parse_response(r)
-
     async def request_voucher(self, voucher: dict[str, Any], *, client_nonce: str) -> dict[str, Any]:
-        async with self._client() as http:
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
             r = await http.post(
                 f"{self.runtime_url}/runtime/request-voucher",
                 headers=self._headers,
@@ -523,7 +142,7 @@ class KarmaRuntime:
         rid = str(receipt.get("receipt_id") or "")
         if rid in self._submitted_receipt_ids:
             raise RuntimeError(f"duplicate receipt submission blocked locally: {rid}")
-        async with self._client() as http:
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
             r = await http.post(
                 f"{self.runtime_url}/runtime/submit-receipt",
                 headers=self._headers,
@@ -535,7 +154,7 @@ class KarmaRuntime:
         return out
 
     async def update_progress(self, progress: dict[str, Any]) -> dict[str, Any]:
-        async with self._client() as http:
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
             r = await http.post(
                 f"{self.runtime_url}/runtime/update-progress",
                 headers=self._headers,
@@ -544,7 +163,7 @@ class KarmaRuntime:
         return self._parse_response(r)
 
     async def request_settlement(self, payload: dict[str, Any]) -> dict[str, Any]:
-        async with self._client() as http:
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
             r = await http.post(
                 f"{self.runtime_url}/runtime/request-settlement",
                 headers=self._headers,
@@ -553,7 +172,7 @@ class KarmaRuntime:
         return self._parse_response(r)
 
     async def get_task_status(self, task_id: str) -> dict[str, Any]:
-        async with self._client() as http:
+        async with httpx.AsyncClient(timeout=self.timeout) as http:
             r = await http.get(
                 f"{self.runtime_url}/runtime/task-status/{task_id}",
                 headers=self._headers,

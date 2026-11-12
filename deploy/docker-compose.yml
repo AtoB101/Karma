@@ -1,5 +1,5 @@
-# Karma - VPS Docker Compose (nginx反向代理, 无Caddy)
-# 用法: docker compose --env-file /opt/karma/.env -f deploy/docker-compose.yml up -d --build
+# Karma — VPS 部署（Docker Compose）
+# 用法见 deploy/vps/README.md；机密一律放服务器上 /opt/karma/.env，绝不入库
 services:
   app:
     build:
@@ -10,65 +10,12 @@ services:
     restart: unless-stopped
     env_file:
       - /opt/karma/.env
-    # Source + durable state are bind-mounted; see the comments inline.
-    volumes:
-      # --- Application source ------------------------------------------------
-      # The VPS has 1.6 GB of RAM and must never run `docker build` (an image
-      # build here previously OOM-killed the box), so the image carries the
-      # *dependencies* and the repo supplies the *code*. These are exactly the
-      # top-level packages the app imports from /app, so
-      #   git pull && docker compose up -d --no-build app
-      # is the complete deploy. Read-only: the app never writes to its own tree.
-      #
-      # Every path below is relative to the repo root, so anything the app reads
-      # at runtime must be listed or the container silently serves the copy baked
-      # into the image at build time. packages/ is one of those: the evidence
-      # standards (packages/evidence-schema/*.json) are loaded per request by
-      # services/*, so omitting it left every standards change invisible in prod
-      # (e.g. the cross_border_ecommerce scene kept resolving as an unknown scene).
-      - ../agents:/app/agents:ro
-      - ../api:/app/api:ro
-      - ../apps:/app/apps:ro
-      - ../config:/app/config:ro
-      - ../core:/app/core:ro
-      - ../db:/app/db:ro
-      - ../decentralized_verifier:/app/decentralized_verifier:ro
-      - ../evidence_runtime:/app/evidence_runtime:ro
-      - ../packages:/app/packages:ro
-      # scripts/ 不是 app 运行时导入的代码，所以最容易漏挂 —— 但运维通道
-      # （scripts/maintenance/*，例如给身份开治理角色、平台自举审批认证）
-      # 就是在容器里用 python -m scripts.maintenance.xxx 跑的。漏挂的后果是
-      # 它悄悄跑镜像里那份构建时的旧副本（或者干脆 ModuleNotFoundError），
-      # 于是「加了一个复核岗」这类动作看起来成功了，实际没落到线上这份代码。
-      - ../scripts:/app/scripts:ro
-      - ../sdk:/app/sdk:ro
-      - ../services:/app/services:ro
-      # --- Durable state -----------------------------------------------------
-      # Platform Ed25519 signing key (settings.ed25519_*_key_path -> ./keys/*.pem).
-      # Without this mount it lives in the container layer, so every recreate
-      # silently rotated the platform key and invalidated earlier attestations
-      # and public_key comparisons.
-      - /opt/karma/keys:/app/keys
-      # Identity / session JSON store: services/persist_json.py writes to
-      # <repo>/mvp_data, i.e. /app/mvp_data inside the container. Every
-      # `docker compose up` recreates the container, so without this bind mount
-      # each recreate wipes every wallet-bound identity.
-      - /opt/karma/mvp_data:/app/mvp_data
-      # Agent bootstrap API keys, custody-held agent keys, agent boundaries /
-      # profile cards, confirmation sessions and field captures all live in
-      # <repo>/.karma_data. Same problem as mvp_data: without this mount a
-      # recreate silently invalidates every minted agent API key.
-      - /opt/karma/karma_data:/app/.karma_data
     environment:
       - PORT=8000
+      - APP_ENV=production
       - KARMA_ENV=production
-    # 单 worker 是**硬要求**，不是省内存：刹车/运维暂停（services/runtime_safety.py）、
-    # nonce 的同进程去重（runtime_key_service._replay）、链上回查冷却表
-    # （escrow_settlement._recover_failed_at）都还是进程内状态。刹车状态已落库
-    # （migration 0060），多 worker 最坏只是晚几秒，但单机 1.6 GB 也经不起 4 份解释器。
-    command: ["sh", "-c", "exec uvicorn api.app:app --host 0.0.0.0 --port 8000 --workers 1"]
-    ports:
-      - "127.0.0.1:8000:8000"
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
       interval: 30s
@@ -81,6 +28,23 @@ services:
         max-size: "20m"
         max-file: "5"
 
+  # 反向代理 + 自动 HTTPS（域名解析到本机后自动签发 Let's Encrypt 证书）
+  caddy:
+    image: caddy:2-alpine
+    container_name: karma-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    logging: *logging
+
+  # PostgreSQL — 第3步数据层生产化时启用（依赖已在 pyproject 里）
   postgres:
     image: postgres:16-alpine
     container_name: karma-postgres
@@ -100,6 +64,7 @@ services:
       retries: 5
     logging: *logging
 
+  # Redis — 限流/缓存后端（可选，缺失时自动降级内存实现）
   redis:
     image: redis:7-alpine
     container_name: karma-redis
@@ -112,5 +77,7 @@ services:
     logging: *logging
 
 volumes:
+  caddy_data:
+  caddy_config:
   postgres_data:
   redis_data:

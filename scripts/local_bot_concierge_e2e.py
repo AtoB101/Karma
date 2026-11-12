@@ -43,7 +43,7 @@ def webhook(update: dict) -> dict:
     return r.json()
 
 
-acct = Account.from_key(os.environ["SEPOLIA_BUYER_KEY"])  # W1 买方
+acct = Account.from_key(os.environ["W1_KEY"])  # W1 买方
 seller_acct = Account.create()  # 卖方（与买方不同钱包，避免触发 self_deal 风控）
 
 with httpx.Client(base_url=BASE, timeout=30) as c:

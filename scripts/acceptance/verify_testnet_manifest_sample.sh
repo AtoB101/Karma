@@ -12,7 +12,7 @@ if [[ ! -f "$MANIFEST" ]]; then
 fi
 
 echo "== Manifest file =="
-python3 -c "import json,sys; m=json.load(open(sys.argv[1])); print('chain_id', m.get('chain_id')); c=m.get('contracts',{}); print('nc', c.get('non_custodial_agent_payment','?')[:20]+'...')" "$MANIFEST"
+python3 -c "import json,sys; m=json.load(open(sys.argv[1])); print('chain_id', m.get('chain_id')); c=m.get('contracts',{}); print('bilateral', c.get('bilateral_escrow','?')[:20]+'...')" "$MANIFEST"
 
 if [[ -f "$LOCK" ]]; then
   echo "== CORE_VERSION.lock =="
@@ -20,9 +20,9 @@ if [[ -f "$LOCK" ]]; then
 fi
 
 RPC="${TESTNET_RPC_URL:-}"
-NC="${NONCUSTODIAL_AGENT_PAYMENT_ADDRESS:-${KARMA_NON_CUSTODIAL_ADDRESS:-}}"
-if [[ -z "$RPC" || -z "$NC" ]]; then
-  echo "SKIP cast probe (set TESTNET_RPC_URL + NONCUSTODIAL_AGENT_PAYMENT_ADDRESS)"
+BILATERAL="${KARMA_BILATERAL_ADDRESS:-}"
+if [[ -z "$RPC" || -z "$BILATERAL" ]]; then
+  echo "SKIP cast probe (set TESTNET_RPC_URL + KARMA_BILATERAL_ADDRESS)"
   exit 0
 fi
 if ! command -v cast >/dev/null 2>&1; then
@@ -31,6 +31,6 @@ if ! command -v cast >/dev/null 2>&1; then
 fi
 
 echo "== cast code size probe =="
-cast code "$NC" --rpc-url "$RPC" | head -c 80
+cast code "$BILATERAL" --rpc-url "$RPC" | head -c 80
 echo ""
 echo "OK manifest sample checks done"

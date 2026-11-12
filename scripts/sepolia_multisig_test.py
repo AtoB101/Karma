@@ -24,7 +24,7 @@ from web3 import Web3
 from web3.middleware import ExtraDataToPOAMiddleware
 
 # ── Config ────────────────────────────────────────────────────
-SEPOLIA_RPC = os.environ.get("SEPOLIA_RPC", "")
+SEPOLIA_RPC = os.environ.get("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
 CHAIN_ID = 11155111
 
 # Resolve paths
@@ -36,17 +36,21 @@ DEPLOYMENT_PATH = os.path.join(PROJECT_ROOT, "deploy", "sepolia_multisig_deploym
 WALLETS = {
     "W1": {
         "address": "0x3295c96a2993C366B3dB27B6ac81f85801D75f51",
-        "private_key": os.environ.get("SEPOLIA_BUYER_KEY", ""),
+        "private_key": os.environ.get("W1_KEY", ""),
     },
     "W2": {
         "address": "0x16fE563a56E6566809597e4aF9a1608d3e55Dd7F",
-        "private_key": os.environ.get("SEPOLIA_AGENT_KEY", ""),
+        "private_key": os.environ.get("W2_KEY", ""),
     },
     "W3": {
         "address": "0x7Ed437E5786AB0d217D52937da4fF4790998d94C",
-        "private_key": os.environ.get("SEPOLIA_ADMIN_KEY", ""),
+        "private_key": os.environ.get("W3_KEY", ""),
     },
 }
+
+for _label, _w in WALLETS.items():
+    if not _w["private_key"]:
+        raise SystemExit(f"Set {_label}_KEY env var (Sepolia test wallet)")
 
 
 @dataclass

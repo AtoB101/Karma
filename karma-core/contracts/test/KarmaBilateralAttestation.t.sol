@@ -51,6 +51,8 @@ contract KarmaBilateralAttestationTest is Test {
         verifier2 = vm.addr(verifier2Pk);
         verifier3 = vm.addr(verifier3Pk);
 
+        usdc = new MockERC20();
+
         // 1. Deploy VerifierRegistry (3-of-5 threshold)
         vm.startPrank(admin);
         registry = new VerifierRegistry(admin);
@@ -60,7 +62,6 @@ contract KarmaBilateralAttestationTest is Test {
         registry.setThresholds(3, 3); // 3-of-3 for this test suite
 
         // 2. Deploy KarmaBilateral
-        usdc  = new MockERC20();
         karma = new KarmaBilateral(admin);
         karma.setTokenAllowed(address(usdc), true);
 
@@ -123,32 +124,6 @@ contract KarmaBilateralAttestationTest is Test {
         karma.setAttestationGateway(address(0));
     }
 
-    function test_gatewayChange_requiresTwoStepDelay() public {
-        // setUp() already wired `gateway`; re-pointing must not be instant.
-        address replacement = makeAddr("replacementGateway");
-
-        vm.startPrank(admin);
-        karma.setAttestationGateway(replacement);
-        assertEq(karma.attestationGateway(), address(gateway));
-        assertEq(karma.pendingAttestationGateway(), replacement);
-        vm.stopPrank();
-
-        // Applying before the delay elapses reverts.
-        vm.expectRevert();
-        karma.applyAttestationGateway();
-
-        // Fast-forward past the default 24h delay and apply.
-        vm.warp(block.timestamp + karma.gatewayChangeDelay() + 1);
-        karma.applyAttestationGateway();
-        assertEq(karma.attestationGateway(), replacement);
-        assertEq(karma.pendingAttestationGateway(), address(0));
-    }
-
-    function test_gatewayChange_applyWithoutPendingReverts() public {
-        vm.expectRevert(KarmaBilateral.NoPendingGatewayUpdate.selector);
-        karma.applyAttestationGateway();
-    }
-
     function test_bindWithAttestation_revertsIfZeroTaskId() public {
         vm.prank(buyer); uint256 bb = karma.lock(address(usdc), BUYER_LOCK);
         vm.prank(agent); uint256 ab = karma.lock(address(usdc), AGENT_LOCK);
@@ -192,7 +167,6 @@ contract KarmaBilateralAttestationTest is Test {
         uint256 agentBefore = usdc.balanceOf(agent);
 
         // Step A: publish evidence
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         assertEq(gateway.taskEvidence(TASK_ID), EVIDENCE);
 
@@ -230,7 +204,6 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_settleWithAttestation_revertsIfQuorumNotReached() public {
         (, , uint256 bindingId) = _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
 
         // Only 2 of 3 attestations
@@ -247,7 +220,6 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_settleWithAttestation_revertsIfWindowOpen() public {
         (, , uint256 bindingId) = _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         _submitAllAttestations(TASK_ID);
 
@@ -258,7 +230,6 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_settleWithAttestation_revertsIfProofHashMismatch() public {
         (, , uint256 bindingId) = _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         _submitAllAttestations(TASK_ID);
         vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
@@ -270,21 +241,16 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_settleWithAttestation_revertsIfTaskBindingMismatch() public {
         // SECURITY regression: cross-task settlement attack.
-        // The attacker opens their OWN legitimately-bound task, obtains quorum
-        // on it, then tries to settle a VICTIM's binding using that consensus.
-        // The settlement gate must reject the cross-task attempt even though
-        // the attacker's own task is fully attested.
+        // Attacker publishes evidence for their OWN task, obtains quorum on it,
+        // then tries to settle a VICTIM's binding using that consensus.
+        // Before the fix, all gates only inspected the attacker's taskId and
+        // the victim's binding was settled instantly, bypassing its Layer-1
+        // dispute window.
         (, , uint256 victimBindingId) = _setupAttestationBinding();
 
-        // Attacker (stranger) opens their own bound task as its buyer.
+        // Attacker's own task, fully attested, window closed
         bytes32 attackerTask = keccak256("attacker-task");
         bytes32 attackerProof = keccak256("attacker-evidence");
-        vm.prank(stranger); uint256 attackerBuyerBill = karma.lock(address(usdc), BUYER_LOCK);
-        vm.prank(agent);     uint256 attackerAgentBill = karma.lock(address(usdc), AGENT_LOCK);
-        vm.prank(stranger);
-        uint256 attackerBindingId = karma.bindWithAttestation(attackerBuyerBill, attackerAgentBill, SCOPE, attackerTask);
-
-        vm.prank(stranger);
         gateway.publishEvidence(attackerTask, attackerProof, "ipfs://attacker");
         _submitAllAttestations(attackerTask);
         vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
@@ -301,9 +267,11 @@ contract KarmaBilateralAttestationTest is Test {
         );
         gateway.settleWithAttestation(attackerTask, victimBindingId, attackerProof);
 
-        // Both bindings must remain untouched
-        assertEq(uint8(karma.getBinding(victimBindingId).state), uint8(KarmaBilateral.BindingState.ACTIVE));
-        assertEq(uint8(karma.getBinding(attackerBindingId).state), uint8(KarmaBilateral.BindingState.ACTIVE));
+        // Victim's binding must still be untouched
+        assertEq(
+            uint8(karma.getBinding(victimBindingId).state),
+            uint8(KarmaBilateral.BindingState.ACTIVE)
+        );
     }
 
     function test_settleWithAttestation_revertsIfFailedAttestationsBlock() public {
@@ -313,7 +281,6 @@ contract KarmaBilateralAttestationTest is Test {
         _registerExtraVerifiers();
 
         (, , uint256 bindingId) = _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
 
         // 3 verifiers condemn the evidence
@@ -339,7 +306,6 @@ contract KarmaBilateralAttestationTest is Test {
         _registerExtraVerifiers();
 
         (, , uint256 bindingId) = _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
 
         _submitAllAttestations(TASK_ID);
@@ -371,7 +337,6 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_settleWithAttestation_revertsIfChallengeNotResolved() public {
         (, , uint256 bindingId) = _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         _submitAllAttestations(TASK_ID);
 
@@ -385,7 +350,6 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_settleWithAttestation_revertsIfChallengeUpheld() public {
         (, , uint256 bindingId) = _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         _submitAllAttestations(TASK_ID);
         gateway.raiseChallenge(TASK_ID, "bad_output", "ipfs://challenge");
@@ -406,7 +370,6 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_settleWithAttestation_succeedsIfChallengeOverruled() public {
         (, , uint256 bindingId) = _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         _submitAllAttestations(TASK_ID);
         gateway.raiseChallenge(TASK_ID, "dispute", "ipfs://challenge");
@@ -432,7 +395,6 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_canSettle_falseBeforeAllConditions() public {
         _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
 
         assertFalse(gateway.canSettle(TASK_ID, EVIDENCE)); // quorum not reached
@@ -444,7 +406,6 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_canSettle_falseOnWrongProofHash() public {
         _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         _submitAllAttestations(TASK_ID);
         vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
@@ -464,11 +425,11 @@ contract KarmaBilateralAttestationTest is Test {
 
         assertFalse(karma.requiresAttestation(bindingId));
 
-        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
+        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, EVIDENCE);
         // settle() enters FINALIZING; finalizeSettle() transitions to SETTLED
-        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
+        vm.warp(block.timestamp + karma.disputeWindow() + 1);
         karma.finalizeSettle(bindingId);
 
         assertEq(
@@ -484,7 +445,6 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_attestation_updatesVerifierReputation() public {
         _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         _submitAttestation(verifier1Pk, verifier1, TASK_ID, true);
 
@@ -494,7 +454,6 @@ contract KarmaBilateralAttestationTest is Test {
 
     function test_attestation_tracksFalseAttestation() public {
         _setupAttestationBinding();
-        vm.prank(buyer);
         gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
         _submitAttestation(verifier1Pk, verifier1, TASK_ID, false); // votes FAIL
 
@@ -504,102 +463,6 @@ contract KarmaBilateralAttestationTest is Test {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ─────────────────────────────────────────────────────────────────────────
-    function test_publishEvidence_revertsForNonParty() public {
-        _setupAttestationBinding();
-
-        vm.prank(stranger);
-        vm.expectRevert(abi.encodeWithSelector(KarmaAttestationGateway.NotTaskPublisher.selector, stranger));
-        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
-    }
-
-    //  Anti-grief challenge stake (P2-9)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    function test_setChallengeStake_onlyArbitrator() public {
-        vm.prank(stranger);
-        vm.expectRevert(KarmaAttestationGateway.NotArbitrator.selector);
-        gateway.setChallengeStake(address(usdc), 1_000_000);
-    }
-
-    function test_setChallengeStake_rejectsTokenZeroWithAmount() public {
-        vm.prank(arbitrator);
-        vm.expectRevert(KarmaAttestationGateway.InvalidAddress.selector);
-        gateway.setChallengeStake(address(0), 1_000_000);
-    }
-
-    function test_raiseChallenge_requiresStakeWhenConfigured() public {
-        vm.prank(arbitrator);
-        gateway.setChallengeStake(address(usdc), 1_000_000);
-
-        _setupAttestationBinding();
-        vm.prank(buyer);
-        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
-
-        // Without allowance the transferFrom fails → revert.
-        vm.prank(stranger);
-        vm.expectRevert(KarmaAttestationGateway.ChallengeStakeTransferFailed.selector);
-        gateway.raiseChallenge(TASK_ID, "grief", "ipfs://challenge");
-
-        // After approving the gateway, the challenge locks the stake.
-        vm.prank(stranger);
-        usdc.approve(address(gateway), 1_000_000);
-        vm.prank(stranger);
-        gateway.raiseChallenge(TASK_ID, "grief", "ipfs://challenge");
-
-        assertEq(gateway.challengerOf(TASK_ID), stranger);
-        assertEq(gateway.challengeStakeOf(TASK_ID), 1_000_000);
-        assertEq(usdc.balanceOf(stranger), 500_000_000 - 1_000_000);
-        assertEq(usdc.balanceOf(address(gateway)), 1_000_000);
-    }
-
-    function test_resolveChallenge_refundsStakeWhenUpheld() public {
-        vm.prank(arbitrator);
-        gateway.setChallengeStake(address(usdc), 1_000_000);
-
-        _setupAttestationBinding();
-        vm.prank(buyer);
-        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
-
-        vm.prank(stranger);
-        usdc.approve(address(gateway), 1_000_000);
-        vm.prank(stranger);
-        gateway.raiseChallenge(TASK_ID, "valid", "ipfs://challenge");
-
-        uint256 strangerBefore = usdc.balanceOf(stranger);
-        uint256 arbitratorBefore = usdc.balanceOf(arbitrator);
-
-        vm.prank(arbitrator);
-        gateway.resolveChallenge(TASK_ID, true); // upheld → refund
-
-        assertEq(usdc.balanceOf(stranger), strangerBefore + 1_000_000);
-        assertEq(usdc.balanceOf(arbitrator), arbitratorBefore);
-        assertEq(gateway.challengeStakeOf(TASK_ID), 0);
-    }
-
-    function test_resolveChallenge_slashesStakeWhenOverruled() public {
-        vm.prank(arbitrator);
-        gateway.setChallengeStake(address(usdc), 1_000_000);
-
-        _setupAttestationBinding();
-        vm.prank(buyer);
-        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
-
-        vm.prank(stranger);
-        usdc.approve(address(gateway), 1_000_000);
-        vm.prank(stranger);
-        gateway.raiseChallenge(TASK_ID, "grief", "ipfs://challenge");
-
-        uint256 arbitratorBefore = usdc.balanceOf(arbitrator);
-
-        vm.prank(arbitrator);
-        gateway.resolveChallenge(TASK_ID, false); // overruled → slash
-
-        assertEq(usdc.balanceOf(arbitrator), arbitratorBefore + 1_000_000);
-        assertEq(usdc.balanceOf(stranger), 500_000_000 - 1_000_000);
-        assertEq(gateway.challengeStakeOf(TASK_ID), 0);
-    }
-
     //  Helpers
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -639,31 +502,6 @@ contract KarmaBilateralAttestationTest is Test {
     }
 
     /// @dev Registers 3 additional verifiers (4/5/6) for mixed-vote scenarios.
-    function test_attestation_doesNotBlockWhenRewardPoolEmpty() public {
-        vm.startPrank(admin);
-        // minStake 0 keeps already-registered verifiers active; reward path enabled.
-        registry.setStakingConfig(address(usdc), 0, 10_000_000);
-        registry.setRewardAllocator(admin);
-        vm.stopPrank();
-
-        _setupAttestationBinding();
-        vm.prank(buyer);
-        gateway.publishEvidence(TASK_ID, EVIDENCE, EVIDENCE_CID);
-
-        // Reward pool empty: attestation must still succeed (reward deferred).
-        _submitAttestation(verifier1Pk, verifier1, TASK_ID, true);
-        assertEq(registry.rewardPool(), 0);
-        assertEq(usdc.balanceOf(verifier1), 0);
-
-        // Once the pool is funded (token + credit), the verifier is paid from it.
-        usdc.mint(address(registry), 10_000_000);
-        vm.prank(admin);
-        registry.creditRewards(10_000_000);
-        _submitAttestation(verifier2Pk, verifier2, TASK_ID, true);
-        assertEq(usdc.balanceOf(verifier2), 10_000_000);
-        assertEq(registry.rewardPool(), 0);
-    }
-
     function _registerExtraVerifiers() internal {
         verifier4 = vm.addr(verifier4Pk);
         verifier5 = vm.addr(verifier5Pk);

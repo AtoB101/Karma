@@ -1,260 +1,90 @@
 /**
- * Karma Console — Wallet connect + SIWE sign-in.
+ * Karma Console — Wallet Connect + SIWE sign-in (no private keys, no mnemonics).
  *
- * ------------------------------------------------------------------ security
- * This module is built so that it CANNOT touch user secrets:
- *   - It never asks a wallet for a private key, seed phrase or mnemonic.
- *   - The only wallet RPCs it calls are eth_requestAccounts / eth_accounts /
- *     eth_chainId / personal_sign. personal_sign returns a signature and the
- *     private key never leaves the wallet.
- *   - It stores only public, non-secret data (public address, server identity
- *     id, short-lived session token) in sessionStorage.
- *   - There is no code path that reads a key, even if a wallet exposed one.
+ * Flow:
+ *   1. Connect browser wallet (eth_requestAccounts) → get address. The wallet
+ *      never exposes private key / mnemonic; it only returns the public address
+ *      and, on demand, a signature.
+ *   2. POST /v1/auth/siwe/challenge {address} → returns a server-signed
+ *      EIP-4361 challenge message (nonce + expiry).
+ *   3. personal_sign the challenge message → 0x signature.
+ *   4. POST /v1/auth/siwe/verify {nonce, signature, address} → server verifies
+ *      the signature and returns { identity_id, wallet, ... }.
+ *   5. Store only non-secret session data (wallet address + identity id) in
+ *      sessionStorage — cleared when the tab/browser closes. Never store any
+ *      key, secret, private key, or mnemonic anywhere in browser storage.
  *
- * ---------------------------------------------------------------------- flow
- *   1. Discover installed wallets (EIP-6963), else fall back to window.ethereum.
- *   2. eth_requestAccounts -> public address.
- *   3. POST /v1/auth/siwe/challenge {address} -> EIP-4361 message.
- *   4. personal_sign(message) -> signature.
- *   5. POST /v1/auth/siwe/verify {nonce, signature, address} -> identity + token.
+ * Supported providers:
+ *   - injected  : window.ethereum (MetaMask / 其他已注入的 EVM 钱包)
+ *   - bitpie    : Bitpie App via WalletConnect（扫码 / URI），若检测到
+ *                 window.bitpie.ethereum 注入则优先使用注入通道
  *
- * Bitpie 是纯手机钱包：没有浏览器插件，也没有 bitpie:// 深链，只能走
- * WalletConnect（扫码 / URI）。projectId 是公开值（非密钥），优先从服务端
- * /v1/info 取，取不到再用 window.KARMA_WC_PROJECT_ID（自托管兜底）。
- *
- * When no wallet is installed the module opens a wallet picker with download
- * links, mobile deep links and a Bitpie WalletConnect button instead of
- * dead-ending on "no plugin detected".
+ * Depends on the Karma public API being reachable at window.KARMA_API_BASE.
  */
 (function (global) {
-  "use strict";
-
-  /** 译文（没接 i18n 或没这条译文时原样返回中文）。 */
-  function T(zh) {
-    var i18n = global.CYBER_I18N;
-    return i18n && i18n.T ? i18n.T(zh) : zh;
-  }
-
   var SS_WALLET = "karma_console_wallet";
   var SS_IDENTITY = "karma_console_identity";
   var SS_TOKEN = "karma_console_access_token";
-  var SS_EXPIRES = "karma_console_token_expires_at";
-  var SS_WNAME = "karma_console_wallet_name";
-
-  var MOBILE_UA = /android|iphone|ipad|ipod|iemobile|blackberry|mobile/i.test(
-    (global.navigator && global.navigator.userAgent) || ""
-  );
-
-  /* 微信 / QQ / 微博 / 飞书 / 钉钉这类内置浏览器会拦掉自定义协议和 App 跳转，
-     钱包唤起链接点下去就是没反应。单独认出来，给一句人话提示＋复制链接兜底。 */
-  var APP_BROWSER = /micromessenger|weibo|feishu|lark|dingtalk|douyin|toutiao|alipayclient/i.test(
-    (global.navigator && global.navigator.userAgent) || ""
-  );
-
-  /* Bitpie 是纯手机钱包：没有浏览器插件，也没有 bitpie:// 深链，只能走
-     WalletConnect 扫码 / URI。projectId 是公开值（非密钥），优先从服务端
-     /v1/info 取，取不到再用 window.KARMA_WC_PROJECT_ID（自托管兜底）。 */
-  // 未配置时留空：调用方必须明确失败，不能用假 id 去初始化 WalletConnect。
+  var PROVIDER_KEY = "karma_console_wallet_provider";
+  var SEPOLIA_CHAIN_ID = 11155111;
+  var WC_PROJECT_ID_FALLBACK = "REPLACE_WITH_WALLETCONNECT_PROJECT_ID";
   var WC_PROJECT_ID = null;
   var WC_SDK_URL = "https://unpkg.com/@walletconnect/ethereum-provider@2.17.2/dist/index.umd.js";
-  var WC_CHAIN_ID = 11155111; // Sepolia —— 与 Karma 测试网一致
-  var wcProviderRef = null;
 
-  /* ------------------------------------------------------------------ utils */
+  var state = { wcProvider: null };
 
   function apiBase() {
-    var raw = global.KARMA_API_BASE;
-    if (raw === undefined || raw === null || String(raw).trim() === "") {
-      try {
-        if (global.location && /^https?:$/.test(global.location.protocol)) {
-          return global.location.origin;
-        }
-      } catch (_) {}
-      return "http://127.0.0.1:8000";
-    }
-    return String(raw).trim().replace(/\/$/, "");
+    return String(global.KARMA_API_BASE || "http://127.0.0.1:8000")
+      .trim()
+      .replace(/\/$/, "");
   }
 
-  function all(sel, root) {
+  function el(sel, root) {
+    return (root || document).querySelector(sel);
+  }
+
+  function els(sel, root) {
     return Array.prototype.slice.call((root || document).querySelectorAll(sel));
   }
 
   function setStatus(msg, ok) {
-    all("[data-wallet-status]").forEach(function (n) {
+    els("[data-wallet-status]").forEach(function (n) {
       n.textContent = msg;
-      n.style.color = ok === true ? "var(--ok, #4ade80)" : ok === false ? "#f87171" : "";
+      n.style.color = ok ? "var(--ok, #4ade80)" : ok === false ? "#f87171" : "";
     });
   }
 
-  function shortAddr(a) {
-    if (!a) return "";
-    return String(a).slice(0, 6) + "…" + String(a).slice(-4);
+  function injectedProvider() {
+    return global.ethereum && typeof global.ethereum.request === "function"
+      ? global.ethereum
+      : null;
   }
 
-  /** 对用户显示的主身份编号（kid1 + 6 位数字）。真正的 kid_… ID 放 title，
-   *  需要复制原值时鼠标停一下就有；KarmaDisplayId 还没加载时退回截断显示。 */
-  function displayId(realId) {
-    var d = global.KarmaDisplayId;
-    if (d && d.of) return d.of(realId, 0);
-    var s = String(realId || "");
-    return s ? s.slice(0, 12) : "";
+  function bitpieInjectedProvider() {
+    var bp = global.bitpie || global.Bitpie || {};
+    return bp.ethereum && typeof bp.ethereum.request === "function"
+      ? bp.ethereum
+      : null;
   }
 
-  /**
-   * Announce a console event on BOTH document and window. The console is not
-   * consistent about where it listens (console-sync/cyber-identity bind to
-   * document), so dispatching on a single target silently drops listeners.
-   */
-  function emitEvent(name, detail) {
-    var ev;
-    try {
-      ev = new CustomEvent(name, { detail: detail });
-    } catch (_) {
-      try { ev = new Event(name); } catch (_) { return; }
-    }
-    try { document.dispatchEvent(ev); } catch (_) {}
-    try { global.dispatchEvent(ev); } catch (_) {}
+  function hasWallet() {
+    return !!(injectedProvider() || bitpieInjectedProvider() || global.WalletConnectEthereumProvider);
   }
 
-  /* 这些串会被拼进状态栏（prefix + errText）：拼完后 i18n 看到的是
-     一整条新串、查不到译文，所以在拼之前就先用 T() 翻好。 */
-  function errText(e) {    if (!e) return T("未知错误");
-    if (e.code === 4001) return T("你取消了授权");
-    if (e.code === -32002) return T("钱包里已有一个待处理的请求");
-    if (e.code === 4902) return T("钱包里没有这条链");
-    return e.message || String(e);
-  }
-
-  /** 最近一次失败，供「诊断信息」用：用户复制给我就能定位。 */
-  var lastError = "";
-
-  function isNetworkError(e) {
-    if (e && e.status) return false;
-    var msg = String((e && e.message) || e || "");
-    return /failed to fetch|networkerror|network request failed|load failed|typeerror/i.test(msg);
-  }
-
-  /**
-   * 人话版的失败说明。以前 signIn 抛网络类错误时（跨域被拦、插件拦截、离线）
-   * 因为拿不到 HTTP 状态码就什么都不显示，状态栏永远停在「获取登录挑战…」，
-   * 用户只看到「点了没反应」。任何一步失败都必须有话说。
-   */
-  function failText(prefix, e) {
-    if (e && e.status) {
-      var detail = (e.body && (e.body.detail || e.body.message)) || e.message;
-      return T(prefix) + detail;
-    }
-    var text = T(prefix) + errText(e);
-    if (isNetworkError(e)) {
-      text +=
-        T("（页面连不上 Karma 接口") + " " +
-        apiBase() + " " +
-        T("：请确认地址栏是 https://karma-network.ai/console/ 开头，并检查广告拦截/隐私插件或代理是否拦了它）");
-    }
-    return text;
-  }
-
-  function remember(e) {
-    lastError = failText("", e);
-  }
-
-  /**
-   * 页面所处的环境。内嵌 iframe 和桌面 App 的内置浏览器都装不了钱包插件，
-   * 这两种情况下「点连接没反应」是环境造成的，必须直接告诉用户，别让人干瞪眼。
-   */
-  function pageContext() {
-    var inIframe = false;
-    try {
-      inIframe = !!(global.top && global.top !== global.self);
-    } catch (_) {
-      inIframe = true; // 跨域读不到 top，说明确实被别的页面嵌着
-    }
-    var ua = (global.navigator && global.navigator.userAgent) || "";
-    var secure = false;
-    try {
-      secure = !!(global.isSecureContext || /^https:$/.test(global.location.protocol));
-    } catch (_) {}
-    return {
-      inIframe: inIframe,
-      ua: ua,
-      embedded: /electron|codex|chatgpt|micromessenger|qqbrowser|douyin|toutiao/i.test(ua),
-      secure: secure,
-    };
-  }
-
-  function diagLines() {
-    var page = "?";
-    try {
-      page = global.location.href;
-    } catch (_) {}
-    var names = entries()
-      .map(function (x) {
-        return (x.info && x.info.name) || "钱包";
-      })
-      .join("、");
-    var ctx = pageContext();
-    var eth = null;
-    try {
-      eth = global.ethereum;
-    } catch (_) {}
-    var ethText = eth
-      ? detectLegacyName(eth) + T("（有 request：") + (typeof eth.request === "function") + "）"
-      : T("无");
-    return [
-      T("页面：") + page,
-      T("页面环境：") +
-        (ctx.inIframe ? T("被别的页面内嵌（iframe）") : T("独立页面")) +
-        " · " +
-        (ctx.secure ? T("安全上下文") : T("非安全上下文")),
-      T("接口：") + apiBase(),
-      T("浏览器：") + (ctx.ua || "?"),
-      T("插件接口 window.ethereum：") + ethText,
-      T("EIP-6963 检测到钱包：") + (names || T("无")),
-      T("最近错误：") + (lastError || T("无")),
-    ].join("\n");
-  }
-
-  function b64(obj) {
-    try {
-      return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
-    } catch (_) {
-      return "";
-    }
-  }
-
-  function jwtExpiry(token) {
-    try {
-      var part = String(token).split(".")[1];
-      if (!part) return 0;
-      part = part.replace(/-/g, "+").replace(/_/g, "/");
-      while (part.length % 4) part += "=";
-      var payload = JSON.parse(decodeURIComponent(escape(atob(part))));
-      return payload && payload.exp ? payload.exp * 1000 : 0;
-    } catch (_) {
-      return 0;
-    }
-  }
-
-  /* --------------------------------------------------------------- sessions */
-
-  function saveSession(wallet, identityId, accessToken, walletName) {
+  function saveSession(wallet, identityId, accessToken) {
     try {
       sessionStorage.setItem(SS_WALLET, wallet || "");
       sessionStorage.setItem(SS_IDENTITY, identityId || "");
       sessionStorage.setItem(SS_TOKEN, accessToken || "");
-      sessionStorage.setItem(SS_EXPIRES, String(accessToken ? jwtExpiry(accessToken) : 0));
-      if (walletName) sessionStorage.setItem(SS_WNAME, walletName);
+      global.KARMA_ACCESS_TOKEN = accessToken || "";
     } catch (_) {}
-    global.KARMA_ACCESS_TOKEN = accessToken || "";
-    global.KARMA_IDENTITY_ID = identityId || global.KARMA_IDENTITY_ID || "";
   }
 
   function clearSession() {
     try {
-      [SS_WALLET, SS_IDENTITY, SS_TOKEN, SS_EXPIRES, SS_WNAME].forEach(function (k) {
-        sessionStorage.removeItem(k);
-      });
-      sessionStorage.removeItem("karma_console_active_profile");
+      sessionStorage.removeItem(SS_WALLET);
+      sessionStorage.removeItem(SS_IDENTITY);
+      sessionStorage.removeItem(SS_TOKEN);
     } catch (_) {}
     global.KARMA_ACCESS_TOKEN = "";
   }
@@ -265,167 +95,67 @@
         wallet: sessionStorage.getItem(SS_WALLET) || "",
         identityId: sessionStorage.getItem(SS_IDENTITY) || "",
         accessToken: sessionStorage.getItem(SS_TOKEN) || "",
-        expiresAt: parseInt(sessionStorage.getItem(SS_EXPIRES) || "0", 10) || 0,
-        walletName: sessionStorage.getItem(SS_WNAME) || "",
       };
     } catch (_) {
-      return { wallet: "", identityId: "", accessToken: "", expiresAt: 0, walletName: "" };
+      return { wallet: "", identityId: "", accessToken: "" };
     }
   }
 
-  function tokenState() {
-    var s = readSession();
-    if (!s.accessToken) return "none";
-    if (!s.expiresAt) return "ok";
-    var left = s.expiresAt - Date.now();
-    if (left <= 0) return "expired";
-    if (left <= 60000) return "stale";
-    return "ok";
-  }
-
-  /* ---------------------------------------------------------- EIP-6963 discovery */
-
-  var discovered = [];
-
-  /** The provider that signed this session, so every console action signs with
-   *  the same wallet the user actually picked (not a hard-coded window.ethereum). */
-  var activeProviderRef = null;
-
-  function onAnnounce(ev) {
-    var d = ev && ev.detail;
-    if (!d || !d.info || !d.provider) return;
-    for (var i = 0; i < discovered.length; i++) {
-      if (discovered[i].info.uuid === d.info.uuid) return;
-    }
-    discovered.push({ info: d.info, provider: d.provider });
-    if (isModalOpen()) renderBody();
-  }
-
-  try {
-    global.addEventListener("eip6963:announceProvider", onAnnounce);
-    global.dispatchEvent(new Event("eip6963:requestProvider"));
-  } catch (_) {}
-
-  function detectLegacyName(p) {
-    if (!p) return "浏览器钱包";
-    if (p.isMetaMask) return "MetaMask";
-    if (p.isOkxWallet || p.isOKExWallet) return "OKX Wallet";
-    if (p.isRabby) return "Rabby";
-    if (p.isCoinbaseWallet) return "Coinbase Wallet";
-    if (p.isBitKeep) return "Bitget Wallet";
-    if (p.isTokenPocket) return "TokenPocket";
-    if (p.isTrust || p.isTrustWallet) return "Trust Wallet";
-    if (p.isBraveWallet) return "Brave Wallet";
-    if (p.isImToken) return "imToken";
-    return "浏览器钱包";
-  }
-
-  /** Bitpie App 注入的 provider（手机 DApp 浏览器里挂在 window.bitpie.ethereum）。 */
-  function bitpieInjectedProvider() {
-    var bp = global.bitpie || global.Bitpie || {};
-    return bp.ethereum && typeof bp.ethereum.request === "function" ? bp.ethereum : null;
-  }
-
-  /**
-   * 有些钱包插件（尤其国产插件的老版本）只给 window.ethereum 挂 sendAsync / send，
-   * 没有 request。以前这类插件会被当成「没装钱包」，用户点了没反应。
-   * 这里补一层 request 适配，让它们照样能连上。
-   */
-  function asRequestProvider(p) {
-    if (!p) return null;
-    if (typeof p.request === "function") return p;
-    var send =
-      typeof p.sendAsync === "function" ? p.sendAsync : typeof p.send === "function" ? p.send : null;
-    if (!send) return null;
-    return {
-      request: function (args) {
-        return new Promise(function (resolve, reject) {
-          var payload = {
-            jsonrpc: "2.0",
-            id: Date.now(),
-            method: args && args.method,
-            params: (args && args.params) || [],
-          };
-          var done = function (err, res) {
-            if (err) return reject(err);
-            if (res && res.error) {
-              var e = new Error((res.error && res.error.message) || "钱包返回错误");
-              e.code = res.error.code;
-              return reject(e);
-            }
-            resolve(res && res.result);
-          };
-          try {
-            send.call(p, payload, done);
-          } catch (e) {
-            reject(e);
-          }
-        });
-      },
-    };
-  }
-
-  function legacyEntries() {
-    var eth = global.ethereum;
-    if (!eth) return [];
-    var list = [];
-    var push = function (p, uuid) {
-      var provider = asRequestProvider(p);
-      if (!provider) return;
-      list.push({
-        info: { uuid: uuid, name: detectLegacyName(p), icon: "" },
-        provider: provider,
-        raw: p,
-      });
-    };
-    if (Array.isArray(eth.providers) && eth.providers.length) {
-      eth.providers.forEach(function (p, i) {
-        push(p, "legacy-" + i);
-      });
-    }
-    if (!list.length) push(eth, "legacy-single");
-    return list;
-  }
-
-  function entries() {
-    var out = discovered.slice();
-    legacyEntries().forEach(function (e) {
-      for (var i = 0; i < out.length; i++) {
-        if ((out[i].raw || out[i].provider) === (e.raw || e.provider)) return;
-      }
-      out.push(e);
+  async function siweJson(path, payload) {
+    var res = await fetch(apiBase() + path, {
+      method: "POST",
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
-    var bitpie = bitpieInjectedProvider();
-    if (bitpie) {
-      var seen = false;
-      for (var j = 0; j < out.length; j++) {
-        if (out[j].raw === bitpie || out[j].provider === bitpie) seen = true;
-      }
-      if (!seen) {
-        out.push({
-          info: { uuid: "bitpie-injected", name: "BitPie 比特派", icon: "" },
-          provider: bitpie,
-          raw: bitpie,
-        });
-      }
+    var text = await res.text();
+    var body;
+    try {
+      body = text ? JSON.parse(text) : null;
+    } catch (_) {
+      body = { raw: text };
     }
-    return out;
+    if (!res.ok) {
+      var msg =
+        (body && (body.detail || body.message)) || (typeof body === "object" ? JSON.stringify(body) : text) || res.statusText;
+      var err = new Error("HTTP " + res.status + ": " + msg);
+      err.status = res.status;
+      err.body = body;
+      throw err;
+    }
+    return body;
   }
 
-  function findEntryByName(name) {
-    var list = entries();
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].info.name === name) return list[i];
-    }
-    return null;
+  function normalizeChainId(cid) {
+    if (typeof cid === "string" && cid.indexOf(":") !== -1) return Number(cid.split(":")[1]);
+    return Number(cid);
   }
 
-  /* ------------------------------------------------ WalletConnect (Bitpie) */
+  function readProviderPref() {
+    try {
+      return localStorage.getItem(PROVIDER_KEY) || "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function saveProviderPref(id) {
+    try {
+      localStorage.setItem(PROVIDER_KEY, id || "injected");
+    } catch (_) {}
+  }
+
+  function getSelectedProviderId() {
+    var sel = el("[data-wallet-provider]");
+    if (sel && sel.value) {
+      return sel.value === "walletconnect" ? "bitpie" : sel.value;
+    }
+    return readProviderPref() || "injected";
+  }
 
   async function resolveProjectId() {
     if (WC_PROJECT_ID) return WC_PROJECT_ID;
     var explicit = global.KARMA_WC_PROJECT_ID;
-    if (explicit) {
+    if (explicit && explicit !== WC_PROJECT_ID_FALLBACK) {
       WC_PROJECT_ID = explicit;
       return WC_PROJECT_ID;
     }
@@ -435,14 +165,14 @@
         var data = await res.json();
         var wc = data && data.walletconnect;
         var pid = wc && (wc.project_id || wc.projectId);
-        if (pid) {
+        if (pid && pid !== WC_PROJECT_ID_FALLBACK) {
           WC_PROJECT_ID = pid;
           return WC_PROJECT_ID;
         }
       }
     } catch (_) {}
-    // 不缓存失败：下次调用还可以重试（例如节点层 failover 后 project_id 才可用）。
-    return "";
+    WC_PROJECT_ID = WC_PROJECT_ID_FALLBACK;
+    return WC_PROJECT_ID;
   }
 
   function loadWalletConnectSdk() {
@@ -457,956 +187,225 @@
         resolve(global.WalletConnectEthereumProvider);
       };
       script.onerror = function () {
-        reject(new Error(T("WalletConnect SDK 加载失败（请检查网络或 CDN 可达性）")));
+        reject(new Error("WalletConnect SDK 加载失败（请检查网络或 CDN 可达性）"));
       };
       (document.head || document.documentElement).appendChild(script);
     });
   }
 
   async function getWalletConnectProvider() {
-    if (wcProviderRef) return wcProviderRef;
+    if (state.wcProvider) return state.wcProvider;
 
     await loadWalletConnectSdk();
     var ns = global.WalletConnectEthereumProvider || {};
     var EthereumProvider = ns.EthereumProvider || ns.default || ns;
     if (typeof EthereumProvider.init !== "function") {
-      throw new Error(T("WalletConnect SDK 未正确加载"));
-    }
-
-    var metadataUrl = "http://127.0.0.1:8000";
-    try {
-      if (global.location && global.location.origin && global.location.origin !== "null") {
-        metadataUrl = global.location.origin;
-      }
-    } catch (_) {}
-
-    var wcProjectId = await resolveProjectId();
-    if (!wcProjectId) {
-      throw new Error(T("WalletConnect 未配置：请在服务端 /v1/info 提供 walletconnect.project_id"));
+      throw new Error("WalletConnect SDK 未正确加载");
     }
 
     var provider = await EthereumProvider.init({
-      projectId: wcProjectId,
-      chains: [WC_CHAIN_ID],
-      optionalChains: [WC_CHAIN_ID],
+      projectId: await resolveProjectId(),
+      chains: [SEPOLIA_CHAIN_ID],
+      optionalChains: [SEPOLIA_CHAIN_ID],
       showQrModal: true,
       metadata: {
         name: "Karma Console",
         description: "Karma AI Agent non-custodial settlement",
-        url: metadataUrl,
+        url: global.location && global.location.origin && global.location.origin !== "null" ? global.location.origin : "http://127.0.0.1:8000",
         icons: [],
       },
     });
 
     provider.on("display_uri", function (uri) {
-      setStatus(T("比特派：请使用 Bitpie App 扫描二维码或复制 URI 连接"), null);
-      try {
-        document.dispatchEvent(new CustomEvent("karma-wallet-uri", { detail: uri }));
-      } catch (_) {}
+      setStatus("比特派：请使用 Bitpie App 扫描二维码或复制 URI 连接", null);
+      document.dispatchEvent(new CustomEvent("karma-wallet-uri", { detail: uri }));
     });
     provider.on("accountsChanged", function (accounts) {
       if (accounts && accounts[0]) {
-        setStatus(T("已切换账户 · ") + shortAddr(accounts[0]), true);
+        setStatus("已切换账户 · " + shortAddr(accounts[0]), true);
       }
     });
-    provider.on("chainChanged", function (cid) {
-      var id =
-        typeof cid === "string" && cid.indexOf(":") !== -1
-          ? Number(cid.split(":")[1])
-          : Number(cid);
-      if (id !== WC_CHAIN_ID) {
-        setStatus(T("注意：当前网络 chainId ") + id + T("，Karma 使用 Sepolia (11155111)"), false);
+    provider.on("chainChanged", function () {
+      var cid = normalizeChainId(provider.chainId);
+      if (cid !== SEPOLIA_CHAIN_ID) {
+        setStatus("注意：当前网络 chainId " + cid + "，Karma 使用 Sepolia (11155111)", false);
       }
     });
     provider.on("disconnect", function () {
-      wcProviderRef = null;
+      state.wcProvider = null;
       clearSession();
-      setStatus(T("比特派钱包已断开"), null);
-      resetWalletUi();
-      try {
-        emitEvent("karma-wallet-disconnected");
-      } catch (_) {}
+      setStatus("比特派钱包已断开", null);
+      var idMain = el(".id-main");
+      if (idMain) idMain.textContent = "—";
+      document.dispatchEvent(new CustomEvent("karma-wallet-disconnected"));
     });
 
-    wcProviderRef = provider;
+    state.wcProvider = provider;
     return provider;
   }
 
-  /* ------------------------------------------------------- wallet catalogue */
+  async function resolveProvider(providerId) {
+    providerId = providerId || getSelectedProviderId();
+    saveProviderPref(providerId);
 
-  function consoleUrl() {
+    if (providerId === "bitpie" || providerId === "walletconnect") {
+      var injected = bitpieInjectedProvider();
+      if (injected) return { provider: injected, kind: "injected" };
+      return { provider: await getWalletConnectProvider(), kind: "walletconnect" };
+    }
+
+    var provider = injectedProvider();
+    if (!provider) {
+      setStatus("未检测到 MetaMask / 钱包插件", false);
+      throw new Error("Wallet not available");
+    }
+    return { provider: provider, kind: "injected" };
+  }
+
+  async function requestAccounts(resolved) {
+    if (resolved.kind === "walletconnect") {
+      var p = resolved.provider;
+      var accounts = p.accounts && p.accounts.length ? p.accounts : await p.enable();
+      if (!accounts || !accounts.length) throw new Error("No accounts");
+      return accounts[0];
+    }
+    var accs = await resolved.provider.request({ method: "eth_requestAccounts" });
+    if (!accs || !accs.length) throw new Error("No accounts");
+    return accs[0];
+  }
+
+  async function connect(providerId) {
+    var resolved;
     try {
-      return global.location.origin + global.location.pathname;
-    } catch (_) {
-      return "https://karma-network.ai/console/pages/cyber/index.html";
+      setStatus("检测钱包…", null);
+      resolved = await resolveProvider(providerId);
+    } catch (e) {
+      setStatus(e && e.message ? e.message : "无法初始化钱包", false);
+      throw e;
     }
-  }
 
-  /** 桌面端「一个钱包都没检测到」时到底该说什么 —— 三种环境三种说法。 */
-  function emptyDesktopText() {
-    var ctx = pageContext();
-    if (ctx.inIframe) {
-      // 一句话就是一个字面量：拼接成多段的话，i18n 只能看到拼完的那一串，查不到译文。
-      return (
-        "本页现在是被别的页面嵌在小窗口里打开的，钱包插件在内嵌页面里不会生效。请把 " +
-        consoleUrl() +
-        " 复制到浏览器地址栏单独打开，再点「连接钱包」。"
-      );
-    }
-    if (ctx.embedded) {
-      return (
-        "你正在一个桌面 App 的内置浏览器里打开本页。这类内置浏览器装不了钱包插件，所以永远检测不到钱包。请把本页链接复制到 Chrome / Edge 打开，再点「连接钱包」。"
-      );
-    }
-    return (
-      "当前浏览器没检测到任何钱包插件。插件只在自己安装的那个浏览器里生效 —— 如果你平时在别的浏览器（Chrome / Edge）里用 MetaMask，请用那个浏览器打开本页；也可以现在装一个。"
-    );
-  }
-
-  var CATALOG = [
-    {
-      name: "MetaMask",
-      install: "https://metamask.io/download/",
-      icon: "🦊",
-      deep: function (u) {
-        return "https://metamask.app.link/dapp/" + u.replace(/^https?:\/\//, "");
-      },
-    },
-    {
-      name: "OKX Wallet",
-      install: "https://www.okx.com/web3",
-      icon: "⭕",
-      deep: function (u) {
-        return "okx://wallet/dapp/url?dappUrl=" + encodeURIComponent(u);
-      },
-    },
-    {
-      name: "Rabby",
-      install: "https://rabby.io/",
-      icon: "🐰",
-    },
-    {
-      name: "Coinbase Wallet",
-      install: "https://www.coinbase.com/wallet/downloads",
-      icon: "🔵",
-      deep: function (u) {
-        return "https://go.cb-w.com/dapp?cb_url=" + encodeURIComponent(u);
-      },
-    },
-    {
-      name: "Bitget Wallet",
-      install: "https://web3.bitget.com/wallet-download",
-      icon: "🔷",
-    },
-    {
-      name: "imToken",
-      install: "https://token.im/download",
-      icon: "💧",
-      deep: function (u) {
-        return "imtokenv2://navigate/DappView?url=" + encodeURIComponent(u);
-      },
-    },
-    {
-      name: "TokenPocket",
-      install: "https://www.tokenpocket.pro/en/download/app",
-      icon: "🟦",
-      deep: function (u) {
-        return (
-          "tpoutside://pull.activity?param=" +
-          b64({ url: u, action: "open", appName: "Karma Console", source: "dapp" })
-        );
-      },
-    },
-    {
-      name: "Trust Wallet",
-      install: "https://trustwallet.com/download",
-      icon: "🛡️",
-      deep: function (u) {
-        return "https://link.trustwallet.com/open_url?coin_id=60&url=" + encodeURIComponent(u);
-      },
-    },
-    {
-      name: "BitPie 比特派",
-      install: "https://bitpie.com/",
-      icon: "🅿️",
-      wc: true,
-    },
-  ];
-
-  /* ---------------------------------------------------------------- modal CSS */
-
-  var CSS = [
-    ".kw-overlay{position:fixed;inset:0;z-index:2147483000;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(3,6,18,.72);backdrop-filter:blur(6px)}",
-    ".kw-overlay.kw-open{display:flex}",
-    ".kw-modal{width:100%;max-width:440px;max-height:86vh;overflow:auto;border-radius:18px;border:1px solid rgba(120,140,255,.28);background:linear-gradient(160deg,#0b1024 0%,#0a0f1f 60%,#080d1a 100%);box-shadow:0 24px 70px rgba(0,0,0,.6);color:#e8ecff;font:14px/1.5 system-ui,-apple-system,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif}",
-    ".kw-head{display:flex;align-items:center;justify-content:space-between;padding:18px 20px 0}",
-    ".kw-head h3{margin:0;font-size:17px;font-weight:650;letter-spacing:.2px}",
-    ".kw-x{width:32px;height:32px;border-radius:10px;border:1px solid rgba(120,140,255,.22);background:rgba(255,255,255,.03);color:#9fb0e0;font-size:18px;line-height:1;cursor:pointer}",
-    ".kw-x:hover{background:rgba(255,255,255,.08);color:#fff}",
-    ".kw-sub{margin:8px 20px 0;color:#9aa8cc;font-size:12.5px}",
-    ".kw-body{padding:14px 20px 4px}",
-    ".kw-sec{margin:0 0 6px;font-size:11.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#7d8bb5}",
-    ".kw-list{display:flex;flex-direction:column;gap:8px;margin:8px 0 16px}",
-    ".kw-item{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;border-radius:13px;border:1px solid rgba(120,140,255,.2);background:rgba(255,255,255,.035);color:#e8ecff;font-size:14px;cursor:pointer;text-align:left;transition:border-color .15s,background .15s}",
-    ".kw-item:hover{border-color:rgba(140,160,255,.55);background:rgba(120,140,255,.12)}",
-    ".kw-ico{width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;background:rgba(120,140,255,.14);font-size:16px;flex:0 0 auto}",
-    ".kw-ico img{width:26px;height:26px;border-radius:7px;display:block}",
-    ".kw-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-    ".kw-tag{font-size:11px;color:#6ee7a8;border:1px solid rgba(110,231,168,.3);background:rgba(110,231,168,.08);padding:2px 8px;border-radius:999px;flex:0 0 auto}",
-    ".kw-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:8px 0 16px}",
-    ".kw-inst{display:flex;align-items:center;gap:9px;padding:11px 12px;border-radius:12px;border:1px solid rgba(120,140,255,.18);background:rgba(255,255,255,.03);color:#dbe3ff;font-size:13px;text-decoration:none}",
-    ".kw-inst:hover{border-color:rgba(140,160,255,.5);background:rgba(120,140,255,.1)}",
-    ".kw-chips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 14px}",
-    ".kw-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 11px;border-radius:999px;font-size:12.5px}",
-    ".kw-empty{margin:6px 0 14px;padding:12px 14px;border-radius:12px;border:1px dashed rgba(255,190,120,.34);background:rgba(255,190,120,.07);color:#ffd9a8;font-size:12.5px}",
-    ".kw-note{display:block;padding:0 20px 18px;color:#7d8bb5;font-size:11.5px}",
-    ".kw-hint{color:#9aa8cc;font-size:12px;margin:0 0 8px}",
-    ".kw-open-wallet{text-decoration:none;border-color:rgba(110,231,168,.34)}",
-    ".kw-open-wallet .kw-tag{color:#6ee7a8}",
-    ".kw-app{margin:0 0 14px;padding:11px 13px;border-radius:12px;border:1px solid rgba(255,190,120,.34);background:rgba(255,190,120,.08);color:#ffd9a8;font-size:12.5px}",
-    ".kw-app-copy{margin-top:9px;padding:7px 12px;border-radius:9px;border:1px solid rgba(255,190,120,.42);background:rgba(255,190,120,.13);color:#ffd9a8;font-size:12px;cursor:pointer}",
-    ".kw-more{margin:0 0 14px}",
-    ".kw-more>summary{cursor:pointer;color:#9aa8cc;font-size:12px;padding:7px 0;list-style:none}",
-    ".kw-more>summary::-webkit-details-marker{display:none}",
-    ".kw-more>summary:before{content:'▸ '}",
-    ".kw-more[open]>summary:before{content:'▾ '}",
-    "@media(max-width:520px){.kw-grid{grid-template-columns:1fr}}"
-  ].join("");
-
-  function injectCss() {
-    if (document.getElementById("kw-styles")) return;
-    var s = document.createElement("style");
-    s.id = "kw-styles";
-    s.textContent = CSS;
-    document.head.appendChild(s);
-  }
-
-  /* ------------------------------------------------------------------ modal */
-
-  function ensureModal() {
-    var node = document.getElementById("kw-overlay");
-    if (node) return node;
-    injectCss();
-    node = document.createElement("div");
-    node.id = "kw-overlay";
-    node.className = "kw-overlay";
-    node.setAttribute("role", "dialog");
-    node.setAttribute("aria-modal", "true");
-    node.innerHTML =
-      '<div class="kw-modal">' +
-      '<div class="kw-head"><h3>连接钱包</h3>' +
-      '<button type="button" class="kw-x" data-kw-close aria-label="关闭">×</button></div>' +
-      '<p class="kw-sub">用钱包签名登录。Karma 只读取你的公开地址和签名，永远不会请求私钥或助记词。</p>' +
-      '<div class="kw-body" data-kw-body></div>' +
-      '<span class="kw-note">🔒 全程不接触私钥 / 助记词 · 签名只用于登录，不会发起任何转账</span>' +
-      "</div>";
-    document.body.appendChild(node);
-    node.addEventListener("click", function (ev) {
-      if (ev.target === node || ev.target.closest("[data-kw-close]")) closeModal();
-      var copy = ev.target.closest("[data-kw-copy]");
-      if (copy) copyText(copy.getAttribute("data-kw-copy") || consoleUrl(), copy);
-      var diag = ev.target.closest("[data-kw-diag]");
-      if (diag) copyText(diagLines(), diag);
-    });
-    document.addEventListener("keydown", function (ev) {
-      if (ev.key === "Escape") closeModal();
-    });
-    return node;
-  }
-
-  function isModalOpen() {
-    var n = document.getElementById("kw-overlay");
-    return !!(n && n.classList.contains("kw-open"));
-  }
-
-  function openModal() {
-    var node = ensureModal();
-    renderBody();
-    node.classList.add("kw-open");
+    var address;
     try {
-      global.dispatchEvent(new Event("eip6963:requestProvider"));
-    } catch (_) {}
-  }
-
-  function closeModal() {
-    var n = document.getElementById("kw-overlay");
-    if (n) n.classList.remove("kw-open");
-  }
-
-  function esc(s) {
-    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
-      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
-    });
-  }
-
-  function copyText(text, btn) {
-    function done() {
-      if (!btn) return;
-      var old = btn.textContent;
-      btn.textContent = "✓ 已复制，去钱包里粘贴打开";
-      setTimeout(function () {
-        btn.textContent = old;
-      }, 1800);
+      address = await requestAccounts(resolved);
+    } catch (e) {
+      setStatus("已取消连接或钱包拒绝授权", false);
+      throw e;
     }
-    function fallback() {
+
+    var identityId = "";
+
+    try {
+      setStatus("获取登录挑战…", null);
+      var ch = await siweJson("/v1/auth/siwe/challenge", { address: address });
+
+      setStatus("请在钱包中签名…", null);
+      var signature;
       try {
-        var ta = document.createElement("textarea");
-        ta.value = text;
-        ta.setAttribute("readonly", "");
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-        done();
-      } catch (_) {}
-    }
-    try {
-      if (global.navigator && global.navigator.clipboard && global.navigator.clipboard.writeText) {
-        global.navigator.clipboard.writeText(text).then(done, fallback);
-        return;
-      }
-    } catch (_) {}
-    fallback();
-  }
-
-  function renderBody() {
-    var body = document.querySelector("[data-kw-body]");
-    if (!body) return;
-    var list = entries();
-    var url = consoleUrl();
-    var html = "";
-
-    if (APP_BROWSER) {
-      html +=
-        '<div class="kw-app"><div>你正在微信 / QQ 这类内置浏览器里打开本页，' +
-        "它们会拦掉钱包 App 的跳转 —— 点了钱包没反应就是这个原因。" +
-        "请点右上角「…」→「在浏览器打开」，再回来点对应钱包即可。" +
-        '<br><button type="button" class="kw-app-copy" data-kw-copy="' +
-        esc(url) +
-        '">复制本页链接（粘贴到手机钱包内置浏览器）</button></div></div>';
-    }
-
-    if (list.length) {
-      html += '<p class="kw-sec">已检测到的钱包</p><div class="kw-list">';
-      list.forEach(function (e) {
-        var icon =
-          e.info.icon && /^data:image\//.test(e.info.icon)
-            ? '<img src="' + esc(e.info.icon) + '" alt="" />'
-            : "👛";
-        html +=
-          '<button type="button" class="kw-item" data-kw-pick="' +
-          esc(e.info.uuid) +
-          '"><span class="kw-ico">' +
-          icon +
-          '</span><span class="kw-name">' +
-          esc(e.info.name) +
-          '</span><span class="kw-tag">点此连接</span></button>';
-      });
-      html += "</div>";
-    } else {
-      html +=
-        '<div class="kw-empty">' +
-        (MOBILE_UA
-          ? "你在手机上打开本页：点下面任一钱包，会直接唤起钱包 App，并在它内置的浏览器里载入本页。"
-          : emptyDesktopText()) +
-        "</div>";
-    }
-
-    function installGrid() {
-      var out = '<div class="kw-grid">';
-      CATALOG.slice(0, 6).forEach(function (w) {
-        out +=
-          '<a class="kw-inst" href="' +
-          esc(w.install) +
-          '" target="_blank" rel="noopener noreferrer"><span class="kw-ico">' +
-          w.icon +
-          "</span><span>" +
-          esc(w.name) +
-          "</span></a>";
-      });
-      return out + "</div>";
-    }
-
-    /* 手机上唯一能真正连上的路径是「让钱包打开本页」——手机浏览器里没有插件可点，
-       所以手机上它排最前、做成一整行的大按钮，插件安装收进折叠项。桌面反过来：
-       插件才是马上能用起来的那条路，手机唤起只是备选。之前手机上先把插件下载链接
-       摆最前，用户点 MetaMask 只会跳到插件下载页，既没唤起 App 也没连上钱包。 */
-    var mobile = CATALOG.filter(function (w) {
-      return w.deep;
-    });
-
-    var mobileSection =
-      '<p class="kw-sec">' +
-      (MOBILE_UA ? "用手机钱包打开本页" : "手机钱包：唤起 App 打开本页") +
-      "</p>";
-    if (MOBILE_UA) {
-      mobileSection += '<div class="kw-list">';
-      mobile.forEach(function (w) {
-        mobileSection +=
-          '<a class="kw-item kw-open-wallet" href="' +
-          esc(w.deep(url)) +
-          '"><span class="kw-ico">' +
-          w.icon +
-          '</span><span class="kw-name">' +
-          esc(w.name) +
-          '</span><span class="kw-tag">打开</span></a>';
-      });
-      mobileSection += "</div>";
-      mobileSection +=
-        '<p class="kw-hint">点了没反应 = 这个钱包没装在手机上，先去应用商店安装。' +
-        "装好后它会用钱包内置浏览器打开本页，再点右上角「连接钱包」授权即可。</p>";
-    } else {
-      mobileSection +=
-        '<p class="kw-hint">用手机点一下，本页会在钱包 App 的内置浏览器里打开，' +
-        "再点「连接钱包」授权即可。</p>";
-      mobileSection += '<div class="kw-chips">';
-      mobile.forEach(function (w) {
-        mobileSection +=
-          '<a class="kw-inst kw-chip" href="' +
-          esc(w.deep(url)) +
-          '"><span>' +
-          w.icon +
-          "</span><span>" +
-          esc(w.name) +
-          "</span></a>";
-      });
-      mobileSection += "</div>";
-    }
-
-    var installsSection = MOBILE_UA
-      ? '<details class="kw-more"><summary>在电脑上使用？安装浏览器插件</summary>' +
-        installGrid() +
-        "</details>"
-      : '<p class="kw-sec">安装钱包（浏览器插件）</p>' + installGrid();
-
-    var wcWallets = CATALOG.filter(function (w) {
-      return w.wc;
-    });
-    var wcSection = "";
-    if (wcWallets.length) {
-      wcSection = '<p class="kw-sec">扫码连接（无插件钱包）</p><div class="kw-list">';
-      wcWallets.forEach(function (w) {
-        wcSection +=
-          '<button type="button" class="kw-item" data-kw-bitpie><span class="kw-ico">' +
-          w.icon +
-          '</span><span class="kw-name">' +
-          esc(w.name) +
-          '</span><span class="kw-tag">扫码连接</span></button>';
-      });
-      wcSection += "</div>";
-      wcSection +=
-        '<p class="kw-hint">点一下会出现二维码：用比特派 App「发现」页扫码授权，' +
-        "或复制链接到钱包里打开。</p>";
-    }
-
-    html += MOBILE_UA
-      ? mobileSection + wcSection + installsSection
-      : installsSection + mobileSection + wcSection;
-
-    var s = readSession();
-    if (s.wallet && tokenState() !== "ok") {
-      html +=
-        '<div class="kw-empty">上次的连接已过期（会话令牌有效期很短）。' +
-        "重新签名一次即可继续。</div>";
-    }
-
-    html +=
-      '<details class="kw-more"><summary>连不上？点这里复制诊断信息发我</summary>' +
-      '<p class="kw-hint" style="white-space:pre-wrap;word-break:break-all">' +
-      esc(diagLines()) +
-      '</p><button type="button" class="kw-app-copy" data-kw-diag>复制诊断信息</button></details>';
-
-    body.innerHTML = html;
-    all("[data-kw-pick]", body).forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var uuid = btn.getAttribute("data-kw-pick");
-        var picked = null;
-        entries().forEach(function (e) {
-          if (e.info.uuid === uuid) picked = e;
+        signature = await resolved.provider.request({
+          method: "personal_sign",
+          params: [ch.message, address],
         });
-        if (picked) connectWith(picked);
-      });
-    });
-    all("[data-kw-bitpie]", body).forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        var r = connectBitpie();
-        if (r && r.catch) r.catch(function () {});
-      });
-    });
-  }
+      } catch (e) {
+        setStatus("签名已取消", false);
+        throw e;
+      }
 
-  /* ------------------------------------------------------------- SIWE login */
-
-  function siweJson(path, payload) {
-    return fetch(apiBase() + path, {
-      method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }).then(function (res) {
-      return res.text().then(function (text) {
-        var body;
-        try {
-          body = text ? JSON.parse(text) : null;
-        } catch (_) {
-          body = { raw: text };
-        }
-        if (!res.ok) {
-          var msg =
-            (body && (body.detail || body.message)) ||
-            (typeof body === "object" ? JSON.stringify(body) : text) ||
-            res.statusText;
-          var err = new Error("HTTP " + res.status + ": " + msg);
-          err.status = res.status;
-          err.body = body;
-          throw err;
-        }
-        return body;
-      });
-    });
-  }
-
-  async function signIn(provider, account, walletName) {
-    activeProviderRef = provider;
-    setStatus("获取登录挑战…", null);
-    var ch;
-    try {
-      ch = await siweJson("/v1/auth/siwe/challenge", { address: account });
-    } catch (e) {
-      remember(e);
-      setStatus(failText("获取登录挑战失败：", e), false);
-      throw e;
-    }
-
-    setStatus("请在钱包中签名…", null);
-    var signature;
-    try {
-      signature = await provider.request({ method: "personal_sign", params: [ch.message, account] });
-    } catch (e) {
-      remember(e);
-      setStatus("签名已取消", false);
-      throw e;
-    }
-
-    setStatus("验证签名…", null);
-    var v;
-    try {
-      v = await siweJson("/v1/auth/siwe/verify", {
+      setStatus("验证签名…", null);
+      var v = await siweJson("/v1/auth/siwe/verify", {
         nonce: ch.nonce,
         signature: signature,
-        address: account,
+        address: address,
       });
+
+      identityId = v.identity_id || "";
+      var accessToken = v.access_token || "";
+      saveSession(address, identityId, accessToken);
+
+      // Reflect onto the console's global identity so reads work without a key.
+      try {
+        global.KARMA_IDENTITY_ID = identityId || global.KARMA_IDENTITY_ID;
+        var idInput = el("[data-cfg=identity_id]");
+        if (idInput && identityId) idInput.value = identityId;
+        var walletInput = el("[data-wallet]");
+        if (walletInput) walletInput.value = address;
+        var idMain = el(".id-main");
+        if (idMain && identityId) idMain.textContent = identityId;
+      } catch (_) {}
+
+      setStatus(
+        "已连接 · " + shortAddr(address) + (identityId ? " · " + identityId : ""),
+        true
+      );
+      document.dispatchEvent(new CustomEvent("karma-wallet-connected", { detail: v }));
+      return { wallet: address, identityId: identityId, verify: v };
     } catch (e) {
-      remember(e);
-      setStatus(failText("登录失败：", e), false);
-      throw e;
-    }
-
-    var identityId = v.identity_id || "";
-    saveSession(account, identityId, v.access_token || "", walletName);
-    applyIdentityToUi(account, identityId);
-
-    setStatus("已连接 · " + shortAddr(account) + (identityId ? " · " + displayId(identityId) : ""), true);
-    try {
-      emitEvent("karma-wallet-connected", v);
-    } catch (_) {}
-    return { wallet: account, identityId: identityId, verify: v };
-  }
-
-  function applyIdentityToUi(account, identityId) {
-    try {
-      all("[data-cfg=identity_id]").forEach(function (n) {
-        if (identityId) n.value = identityId;
-      });
-      all("#id-card-id").forEach(function (n) {
-        if (identityId && !n.value) n.value = identityId;
-      });
-      all("#ag-identity").forEach(function (n) {
-        if (identityId && !n.value) n.value = identityId;
-      });
-      all("[data-wallet]").forEach(function (n) {
-        n.value = account || "";
-      });
-      // 「当前身份」由身份模块统一渲染：切到子身份时这里要显示子身份，不是主身份。
-      var idSwitcher = global.KarmaIdentitySwitcher;
-      if (idSwitcher && idSwitcher.renderCurrent) {
-        idSwitcher.renderCurrent();
-      } else {
-        all(".id-main").forEach(function (n) {
-          if (identityId) n.textContent = displayId(identityId);
-        });
-      }
-      all("[data-bind=wallet_address]").forEach(function (n) {
-        n.textContent = shortAddr(account);
-      });
-      /* 顶栏那颗身份芯片归身份模块统一渲染（切到子身份时要跟着变）。
-         模块没加载时才本地兜底 —— 否则这里会把主身份硬写回去，
-         屏幕上就出现「侧栏 kid02…、顶栏 kid1…」两个编号，用户以为没切成功。 */
-      if (!(idSwitcher && idSwitcher.renderCurrent)) {
-        var chip = document.getElementById("top-identity-chip");
-        if (chip) {
-          chip.textContent = identityId ? displayId(identityId) : "未连接";
-          chip.title = identityId || "";
-          chip.style.color = identityId ? "var(--ok, #4ade80)" : "";
-        }
-      }
-    } catch (_) {}
-  }
-
-  async function connectWith(entry) {
-    closeModal();
-    var provider = entry.provider;
-    var name = (entry.info && entry.info.name) || "钱包";
-    setStatus("等待钱包授权…", null);
-
-    var accounts;
-    try {
-      accounts = await provider.request({ method: "eth_requestAccounts" });
-    } catch (e) {
-      remember(e);
-      setStatus(T("连接失败：") + errText(e), false);
-      return;
-    }
-    if (!accounts || !accounts.length) {
-      lastError = "钱包未返回账户";
-      setStatus("钱包未返回账户", false);
-      return;
-    }
-
-    try {
-      return await signIn(provider, accounts[0], name);
-    } catch (e) {
-      // signIn 已经写过状态了；这里兜底，保证任何异常都不会「无声失败」。
-      remember(e);
-      setStatus(failText("登录失败：", e), false);
       throw e;
     }
   }
 
-  function connect() {
-    var list = entries();
-    /* 已经能看见钱包就别再让人挑一次：钱包 App 的内置浏览器里只有它自己，
-       手机上也一样——多弹一层选择框只会让人觉得「点了没反应」。 */
-    if (list.length === 1) return connectWith(list[0]);
-    if (list.length) {
-      openModal();
-      return Promise.resolve(null);
-    }
-    /* 有人的钱包插件注入得比这段脚本执行晚一点（刚装好、刚升级完最常见）。
-       先等一拍再认一次，别把这类人直接劝去下载插件。 */
-    try {
-      global.dispatchEvent(new Event("eip6963:requestProvider"));
-    } catch (_) {}
-    setStatus("正在检测钱包插件…", null);
-    return new Promise(function (resolve) {
-      setTimeout(function () {
-        var retry = entries();
-        if (retry.length === 1) {
-          resolve(connectWith(retry[0]));
-          return;
-        }
-        openModal();
-        resolve(null);
-      }, 400);
-    });
+  function shortAddr(a) {
+    if (!a) return "";
+    return String(a).slice(0, 6) + "…" + String(a).slice(-4);
   }
 
   function disconnect() {
-    if (wcProviderRef && typeof wcProviderRef.disconnect === "function") {
+    if (state.wcProvider && typeof state.wcProvider.disconnect === "function") {
       try {
-        wcProviderRef.disconnect();
+        state.wcProvider.disconnect();
       } catch (_) {}
     }
-    wcProviderRef = null;
+    state.wcProvider = null;
     clearSession();
     setStatus("已断开钱包", null);
-    resetWalletUi();
-    try {
-      emitEvent("karma-wallet-disconnected");
-    } catch (_) {}
+    var idMain = el(".id-main");
+    if (idMain) idMain.textContent = "—";
+    document.dispatchEvent(new CustomEvent("karma-wallet-disconnected"));
   }
-
-  function resetWalletUi() {
-    all(".id-main").forEach(function (n) {
-      n.textContent = "—";
-    });
-    var chip = document.getElementById("top-identity-chip");
-    if (chip) {
-      chip.textContent = "未连接";
-      chip.style.color = "";
-    }
-  }
-
-  async function connectBitpie() {
-    closeModal();
-    setStatus(T("初始化比特派连接…"), null);
-    var provider;
-    try {
-      provider = await getWalletConnectProvider();
-    } catch (e) {
-      remember(e);
-      setStatus(failText(T("比特派连接失败："), e), false);
-      return null;
-    }
-    var accounts;
-    try {
-      accounts =
-        provider.accounts && provider.accounts.length ? provider.accounts : await provider.enable();
-    } catch (e) {
-      remember(e);
-      setStatus(T("已取消连接或钱包拒绝授权"), false);
-      return null;
-    }
-    if (!accounts || !accounts.length) {
-      lastError = T("钱包未返回账户");
-      setStatus(T("钱包未返回账户"), false);
-      return null;
-    }
-    try {
-      return await signIn(provider, accounts[0], "BitPie 比特派");
-    } catch (e) {
-      remember(e);
-      setStatus(failText(T("登录失败："), e), false);
-      throw e;
-    }
-  }
-
-  function hasWallet() {
-    return entries().length > 0;
-  }
-
-  /* ------------------------------------------------- session restore / watch */
-
-  async function restore() {
-    var s = readSession();
-    if (s.accessToken) {
-      global.KARMA_ACCESS_TOKEN = s.accessToken;
-      if (s.identityId) global.KARMA_IDENTITY_ID = s.identityId;
-      if (tokenState() === "ok" && s.wallet) {
-        applyIdentityToUi(s.wallet, s.identityId);
-        setStatus(
-          "已连接 · " + shortAddr(s.wallet) + (s.identityId ? " · " + displayId(s.identityId) : ""),
-          true
-        );
-      } else if (s.wallet) {
-        setStatus("会话已过期 · 请重新连接钱包", false);
-      }
-      try {
-        emitEvent("karma-session-restored", s);
-      } catch (_) {}
-    }
-
-    var list = entries();
-    if (!list.length) {
-      if (!s.wallet) {
-        setStatus(
-          MOBILE_UA
-            ? "未连接 · 点「连接钱包」用手机钱包打开本页"
-            : "未检测到钱包 · 点「连接钱包」安装插件或用手机钱包打开",
-          null
-        );
-      }
-      return;
-    }
-    if (!s.wallet) {
-      setStatus(
-        "已检测到 " + ((list[0].info && list[0].info.name) || "钱包") + " · 点「连接钱包」授权登录",
-        null
-      );
-    }
-
-    var provider = list[0].provider;
-    var current = "";
-    try {
-      var accts = await provider.request({ method: "eth_accounts" });
-      current = accts && accts.length ? accts[0] : "";
-    } catch (_) {}
-
-    if (s.wallet && current && current.toLowerCase() === s.wallet.toLowerCase()) {
-      if (tokenState() !== "ok") {
-        // Session token expired but the wallet is still authorised: silently
-        // re-run SIWE. This asks the wallet to sign a login message only.
-        try {
-          await signIn(provider, current, s.walletName || "钱包");
-        } catch (_) {
-          setStatus("会话已过期 · 请点连接钱包重新签名", false);
-        }
-      }
-    } else if (s.wallet && !current) {
-      setStatus("钱包已锁定或未授权 · 请重新连接", false);
-    }
-
-    try {
-      provider.on && provider.on("accountsChanged", function (accts) {
-        if (!accts || !accts.length) {
-          disconnect();
-        } else if (accts[0].toLowerCase() !== (readSession().wallet || "").toLowerCase()) {
-          setStatus("钱包账号已切换 · 请重新连接", false);
-          disconnect();
-        }
-      });
-      provider.on && provider.on("chainChanged", function () {
-        setStatus("网络已切换 · 如异常请重新连接", null);
-      });
-    } catch (_) {}
-  }
-
-  function ensureFreshToken() {
-    var st = tokenState();
-    if (st === "ok") return true;
-    if (st !== "none") {
-      setStatus("会话已过期 · 请重新连接钱包", false);
-      try {
-        emitEvent("karma-session-expired");
-      } catch (_) {}
-    }
-    return false;
-  }
-
-  /* ------------------------------------------------- 会话续期（令牌会到点） */
-
-  /**
-   * SIWE 会话只有 15 分钟。**页面一直开着的时候，它会在用户眼皮底下过期** ——
-   * 而在本轮之前没人盯着这件事：入口门禁只在事件上重算，令牌过期本身不产生事件，
-   * ``ensureFreshToken`` 导出了却一个调用方都没有。真机上的样子正是：tab 开着不动，
-   * 之后点「生成接入包」走到最后只拿到一句英文 HTTP 401（那把钥匙的边界 / 额度
-   * 其实都还没保存），同一时刻「接入确认」那张卡也一直是空的（它走会话鉴权，
-   * 同样被 401/403 挡住）—— 用户于是以为是自己抄错了匹配码。
-   *
-   * 这里补上那一段：令牌快到点 / 已过期就**静默重签一次**（钱包仍授权时，用户只多签
-   * 一次名，不用做别的）；实在续不上，才发 ``karma-session-expired``，让入口门禁按
-   * 既有口径把门重新关上（那句话就是「会话已过期，请重新连接钱包」）。
-   */
-  var SESSION_WATCH_MS = Number(global.KARMA_SESSION_WATCH_MS) > 0
-    ? Number(global.KARMA_SESSION_WATCH_MS)
-    : 30000;
-  var sessionWatchTimer = null;
-  var reauthInFlight = null;
-  var reauthTriedFor = "";
-  var expiredNotified = false;
-
-  /**
-   * 静默重签：钱包还在授权状态时再走一遍 SIWE。
-   * 同一枚令牌只试一次 —— 否则钱包会每 30 秒弹一次签名，比过期本身更烦；
-   * 换过账号 / 钱包锁着 / 拿不到账号，一律**不替用户做主**，返回 false 交回门禁。
-   */
-  function reauth() {
-    if (reauthInFlight) return reauthInFlight;
-    reauthInFlight = (async function () {
-      var s = readSession();
-      if (!s.wallet || !s.accessToken) return false;
-      if (reauthTriedFor === s.accessToken) return false;
-      reauthTriedFor = s.accessToken;
-      var provider = activeProvider();
-      if (!provider || typeof provider.request !== "function") return false;
-      var current = "";
-      try {
-        var accts = await provider.request({ method: "eth_accounts" });
-        current = accts && accts.length ? accts[0] : "";
-      } catch (_) {
-        current = "";
-      }
-      if (!current || String(current).toLowerCase() !== String(s.wallet).toLowerCase()) return false;
-      try {
-        await signIn(provider, current, s.walletName || "钱包");
-      } catch (_) {
-        return false;
-      }
-      expiredNotified = false;
-      return true;
-    })();
-    var clear = function () { reauthInFlight = null; };
-    reauthInFlight.then(clear, clear);
-    return reauthInFlight;
-  }
-
-  /** 会话真的没救了：提示 + 把门关上（入口门禁听这个事件）。只喊一次，不刷屏。 */
-  function markExpired() {
-    if (expiredNotified) return;
-    expiredNotified = true;
-    setStatus("会话已过期 · 请重新连接钱包", false);
-    emitEvent("karma-session-expired");
-  }
-
-  /** 一次心跳。返回 'ok' | 'renewed' | 'expired' | 'none'。 */
-  async function checkSession() {
-    var st = tokenState();
-    if (st === "ok") {
-      reauthTriedFor = "";
-      expiredNotified = false;
-      return "ok";
-    }
-    if (st === "none") {
-      expiredNotified = false;
-      return "none";
-    }
-    if (await reauth()) {
-      expiredNotified = false;
-      return "renewed";
-    }
-    markExpired();
-    return "expired";
-  }
-
-  function watchSession() {
-    if (sessionWatchTimer) return;
-    try {
-      sessionWatchTimer = global.setInterval(function () { checkSession(); }, SESSION_WATCH_MS);
-    } catch (_) {}
-  }
-
-  /* -------------------------------------------------------------------- bind */
 
   function bind() {
-    all("[data-wallet-connect]").forEach(function (btn) {
+    els("[data-wallet-connect]").forEach(function (btn) {
       btn.addEventListener("click", function () {
-        try {
-          var r = connect();
-          if (r && r.catch) r.catch(function () {});
-        } catch (_) {}
+        connect(getSelectedProviderId()).catch(function () {});
       });
     });
-    all("[data-wallet-disconnect]").forEach(function (btn) {
-      btn.addEventListener("click", disconnect);
-    });
-    restore();
-    // 页面开着的时候也会过期：入口门禁只在事件上重算，所以这里得有人盯着心跳。
-    watchSession();
-  }
 
-  /** Best available wallet provider: the one used this session, else the first
-   *  discoverable wallet, else the legacy injected provider. */
-  function activeProvider() {
-    if (activeProviderRef && typeof activeProviderRef.request === "function") return activeProviderRef;
-    var list = entries();
-    if (list.length && list[0].provider) return list[0].provider;
-    return asRequestProvider(global.ethereum);
+    els("[data-wallet-disconnect]").forEach(function (disc) {
+      disc.addEventListener("click", disconnect);
+    });
+
+    els("[data-wallet-provider]").forEach(function (sel) {
+      sel.value = readProviderPref() || "injected";
+      sel.addEventListener("change", function () {
+        saveProviderPref(sel.value);
+      });
+    });
+
+    // Restore a live session label on load.
+    var s = readSession();
+    if (s.accessToken) global.KARMA_ACCESS_TOKEN = s.accessToken;
+    if (s.wallet) {
+      setStatus("已连接 · " + shortAddr(s.wallet) + (s.identityId ? " · " + s.identityId : ""), true);
+      if (s.identityId) {
+        try {
+          var idInput = el("[data-cfg=identity_id]");
+          if (idInput && !idInput.value.trim()) idInput.value = s.identityId;
+          var idMain = el(".id-main");
+          if (idMain) idMain.textContent = s.identityId;
+        } catch (_) {}
+      }
+    }
   }
 
   global.KarmaWalletAuth = {
-    activeProvider: activeProvider,
     connect: connect,
-    connectWith: connectWith,
-    connectBitpie: connectBitpie,
     disconnect: disconnect,
     readSession: readSession,
     hasWallet: hasWallet,
-    entries: entries,
-    openPicker: openModal,
-    tokenState: tokenState,
-    ensureFreshToken: ensureFreshToken,
-    reauth: reauth,
-    checkSession: checkSession,
-    markExpired: markExpired,
+    getSelectedProviderId: getSelectedProviderId,
+    getProvider: resolveProvider,
+    requestAccounts: requestAccounts,
     bind: bind,
-    diagnose: diagLines,
-    CATALOG: CATALOG,
   };
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", bind);
-  } else {
-    bind();
-  }
+  document.addEventListener("DOMContentLoaded", bind);
 })(window);

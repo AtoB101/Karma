@@ -15,14 +15,8 @@ from db.models.orm import ProgressReceiptModel
 from db.session import get_db
 from db.stores.settlement_store import PostgresSettlementStore
 from services.progress_curve import validate_claimed_against_curve
-from services.receipt_guard import (
-    progress_receipt_signature_acceptable,
-    progress_timestamp_regressed,
-    validate_progress_receipt_static,
-)
+from services.receipt_guard import validate_progress_receipt_static
 from services.path_param_safety import validate_public_url_segment
-from services.actor_guards import caller_actor_id
-from services.settlement_transitions import record_settlement_transition_audit
 from services.settlement_party_access import (
     party_binding_active,
     require_actor_matches_identity,
@@ -42,17 +36,6 @@ async def submit_progress_receipt(progress: ProgressReceipt, request: Request, d
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    # P1-6：签名不能只「非空」，必须真的验得过；``runtime:`` 绑定戳只认网关来源。
-    from services.runtime_synthetic_request import runtime_actor_id
-
-    if not progress_receipt_signature_acceptable(
-        progress, runtime_binding_trusted=bool(runtime_actor_id(request))
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="progress seller_signature did not verify",
-        )
-
     existing = await db.get(ProgressReceiptModel, progress.progress_receipt_id)
     if existing:
         raise HTTPException(409, f"Progress receipt {progress.progress_receipt_id} already exists")
@@ -65,11 +48,7 @@ async def submit_progress_receipt(progress: ProgressReceipt, request: Request, d
     )
     latest = latest_result.scalar_one_or_none()
     if latest is not None:
-        # 客户端可能带时区（ISO 带 Z），库里存的是 naive UTC —— 直接比会 TypeError 500。
-        if progress_timestamp_regressed(
-            new_timestamp=progress.timestamp,
-            latest_timestamp=latest.timestamp,
-        ):
+        if progress.timestamp < latest.timestamp:
             raise HTTPException(409, "progress timestamp is older than latest receipt")
         if progress.progress_percent + 1e-9 < latest.progress_percent:
             raise HTTPException(409, "progress_percent rollback is not allowed")
@@ -124,21 +103,8 @@ async def submit_progress_receipt(progress: ProgressReceipt, request: Request, d
             confirmed_at=progress.confirmed_at,
         )
     )
-    # P1-8：这一步改了结算状态，必须和 /v1/settlement/* 一样留痕（此前没有）。
-    from_status = settlement.status
     settlement.status = TaskStatus.PROGRESS_SUBMITTED
     await settlement_store.save(settlement)
-    await record_settlement_transition_audit(
-        db=db,
-        state=settlement,
-        from_status=from_status,
-        to_status=TaskStatus.PROGRESS_SUBMITTED,
-        transition_allowed=True,
-        guard_stage="progress_submit",
-        reason=f"progress receipt {progress.progress_receipt_id} submitted",
-        route_path="/v1/progress",
-        actor_id=caller_actor_id(request),
-    )
     return progress
 
 
@@ -172,20 +138,8 @@ async def confirm_progress_receipt(progress_receipt_id: str, request: Request, d
 
     row.confirmation_status = ProgressConfirmationStatus.CONFIRMED.value
     row.confirmed_at = datetime.utcnow()
-    from_status = settlement.status
     settlement.status = TaskStatus.PROGRESS_CONFIRMED
     await settlement_store.save(settlement)
-    await record_settlement_transition_audit(
-        db=db,
-        state=settlement,
-        from_status=from_status,
-        to_status=TaskStatus.PROGRESS_CONFIRMED,
-        transition_allowed=True,
-        guard_stage="progress_confirm",
-        reason=f"progress receipt {progress_receipt_id} confirmed by buyer",
-        route_path="/v1/progress/{progress_receipt_id}/confirm",
-        actor_id=caller_actor_id(request),
-    )
     await db.flush()
     return _to_schema(row)
 
@@ -227,20 +181,8 @@ async def timeout_confirm_progress(
         row.confirmed_at = datetime.utcnow()
         updated.append(_to_schema(row))
     if rows:
-        from_status = settlement.status
         settlement.status = TaskStatus.PROGRESS_CONFIRMED
         await settlement_store.save(settlement)
-        await record_settlement_transition_audit(
-            db=db,
-            state=settlement,
-            from_status=from_status,
-            to_status=TaskStatus.PROGRESS_CONFIRMED,
-            transition_allowed=True,
-            guard_stage="progress_timeout_confirm",
-            reason=f"{len(rows)} pending progress receipt(s) auto-confirmed after {max_pending_hours}h",
-            route_path="/v1/progress/task/{task_id}/timeout-confirm",
-            actor_id=caller_actor_id(request),
-        )
     await db.flush()
     return updated
 

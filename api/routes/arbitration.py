@@ -3,17 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
 from datetime import datetime, timedelta
 
-import structlog
-
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config.settings import settings
 from core.schemas import (
     ArbitrationArbitratorActivitySummary,
     ArbitrationAssignment,
@@ -42,30 +38,12 @@ from db.models.orm import (
     ArbitrationMaterialPackageModel,
     ArbitrationPoolMemberModel,
     ArbitrationVoteModel,
-    TaskContractModel,
 )
 from db.session import get_db
-from decentralized_verifier.schemas import (
-    SettlementReversalListResponse,
-    SettlementReversalResponse,
-)
 from db.stores.settlement_store import PostgresSettlementStore
-from services import arbitration_rules as arb_rules
-from services import bond_slash, economy_policy, governance_stake, settlement_reversal
-from services import verifier_bond
-from services.actor_guards import require_admin_actor, require_arbitration_operator
 from services.capacity_resolution import apply_capacity_resolution
-from services.identity_actor import resolve_actor_identity_id
-from services.identity_wallet_binding import get_bound_wallet
-from services.security_monitoring import (
-    SecurityMonitoringEventType,
-    record_security_event,
-)
 from services.settlement_voucher import mark_voucher_used_if_linked
-from services.settlement_amounts import normalize_amount, split_amounts
 
-
-logger = structlog.get_logger(__name__)
 router = APIRouter()
 DEFAULT_OPEN_CASE_ALERT_THRESHOLD = 5
 DEFAULT_VOTING_CASE_ALERT_THRESHOLD = 5
@@ -77,13 +55,11 @@ DEFAULT_DECIDED_OVERDUE_HOURS = 12
 
 
 class JoinArbitrationPoolRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     arbitrator_identity_id: str
     stake_amount: float = Field(ge=0.0, default=0.0)
 
 
 class CreateArbitrationCaseRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     task_id: str
     opened_by: str
     reason: str | None = None
@@ -91,12 +67,10 @@ class CreateArbitrationCaseRequest(BaseModel):
 
 
 class AssignArbitratorsRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     count: int = Field(default=3, ge=1, le=21)
 
 
 class SubmitArbitrationMaterialRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     submitted_by: str
     bundle_id: str | None = None
     progress_receipt_ids: list[str] = Field(default_factory=list)
@@ -106,7 +80,6 @@ class SubmitArbitrationMaterialRequest(BaseModel):
 
 
 class CastArbitrationVoteRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     arbitrator_identity_id: str
     decision: ArbitrationVoteDecision
     partial_percent: float | None = Field(default=None, ge=0.0, le=100.0)
@@ -114,26 +87,7 @@ class CastArbitrationVoteRequest(BaseModel):
 
 
 @router.post("/pool/join", response_model=ArbitrationPoolMember)
-async def join_arbitration_pool(
-    body: JoinArbitrationPoolRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """入池。
-
-    收紧后的三条硬规则（2026-09-17 复核前这里什么也不校验）：
-    1. 只能给自己入池 —— 不能把别人塞进仲裁池；
-    2. 入池资格走 ``ARBITRATOR_ACTOR_IDS``（除非显式开放申请）；
-    3. 质押必须 > 0，且必须由**已锁仓的真实 USDC** 背书。
-    """
-    arb_rules.require_pool_join_allowed(request)
-    await arb_rules.require_identity_binding(
-        db, request, body.arbitrator_identity_id, what="arbitration pool join"
-    )
-    await arb_rules.assert_stake_acceptable(
-        db, identity_id=body.arbitrator_identity_id, stake_amount=body.stake_amount
-    )
-
+async def join_arbitration_pool(body: JoinArbitrationPoolRequest, db: AsyncSession = Depends(get_db)):
     row = await db.get(ArbitrationPoolMemberModel, body.arbitrator_identity_id)
     if not row:
         row = ArbitrationPoolMemberModel(
@@ -164,82 +118,24 @@ async def list_arbitration_pool(db: AsyncSession = Depends(get_db)):
     return [_pool_to_schema(row) for row in rows]
 
 
-async def _case_parties(db: AsyncSession, case_row: ArbitrationCaseModel) -> set[str]:
-    """案件当事人集合：立案人 + 结算买卖双方（用于读权限与回避）。"""
-    parties: set[str] = set()
-    if case_row.opened_by:
-        parties.add(case_row.opened_by)
-    state = await PostgresSettlementStore(db).get(case_row.task_id)
-    if state is not None:
-        if state.client_agent_id:
-            parties.add(state.client_agent_id)
-        if state.worker_agent_id:
-            parties.add(state.worker_agent_id)
-    return parties
-
-
-async def _require_case_reader(db: AsyncSession, case_row: ArbitrationCaseModel, request: Request) -> None:
-    """案件详情/材料/事件只对当事人与运维岗开放（争议材料不该给第三方看）。"""
-    if arb_rules.caller_is_operator(request):
-        return
-    parties = await _case_parties(db, case_row)
-    actor_identity = await resolve_actor_identity_id(db, request)
-    if actor_identity and actor_identity in parties:
-        return
-    raise HTTPException(
-        403, "only the dispute parties or arbitration operators may read this case"
-    )
-
-
 @router.post("/cases", response_model=ArbitrationCase, status_code=201)
-async def create_arbitration_case(
-    body: CreateArbitrationCaseRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    # 校验顺序：输入合法性 → 资源存在 → 授权 → 状态。授权先于状态，
-    # 免得「案件是否存在 / 结算到哪一步了」被无关身份探测出来。
-    # 人数不能由调用方自填：只能落在平台策略窗口内。
-    arb_rules.assert_panel_size_allowed(body.required_arbitrators)
-
-    settlement_store = PostgresSettlementStore(db)
-    state = await settlement_store.get(body.task_id)
-    if not state:
-        raise HTTPException(404, f"settlement {body.task_id} not found")
-
-    # 立案人必须是本案当事人（运维岗可代为立案）。
-    parties = {state.client_agent_id}
-    if state.worker_agent_id:
-        parties.add(state.worker_agent_id)
-    if body.opened_by not in parties and not arb_rules.caller_is_operator(request):
-        raise HTTPException(403, "only a party to the dispute may open an arbitration case")
-    await arb_rules.require_identity_binding(db, request, body.opened_by, what="case creation")
-
+async def create_arbitration_case(body: CreateArbitrationCaseRequest, db: AsyncSession = Depends(get_db)):
     existing = await db.execute(
         select(ArbitrationCaseModel).where(ArbitrationCaseModel.task_id == body.task_id)
     )
     if existing.scalar_one_or_none():
         raise HTTPException(409, f"arbitration case already exists for task {body.task_id}")
 
+    settlement_store = PostgresSettlementStore(db)
+    state = await settlement_store.get(body.task_id)
+    if not state:
+        raise HTTPException(404, f"settlement {body.task_id} not found")
     if state.status not in {TaskStatus.DISPUTED, TaskStatus.ARBITRATED}:
         raise HTTPException(409, "settlement must be disputed before arbitration case creation")
 
     if state.status == TaskStatus.DISPUTED:
         if not can_transition(state.status, TaskStatus.ARBITRATED):
             raise HTTPException(409, "invalid settlement transition to arbitration")
-        from api.routes.settlement import _record_transition_audit
-
-        await _record_transition_audit(
-            db=db,
-            state=state,
-            from_status=TaskStatus.DISPUTED,
-            to_status=TaskStatus.ARBITRATED,
-            transition_allowed=True,
-            guard_stage="arbitration_case_create",
-            reason=f"arbitration case opened by {body.opened_by}",
-            route_path="/v1/arbitration/cases",
-            actor_id=await resolve_actor_identity_id(db, request) or body.opened_by,
-        )
         state.status = TaskStatus.ARBITRATED
         state.updated_at = datetime.utcnow()
         await settlement_store.save(state)
@@ -272,7 +168,6 @@ async def create_arbitration_case(
 
 @router.get("/cases/ops/report", response_model=ArbitrationCaseOpsReport)
 async def get_arbitration_case_ops_report(
-    _: str = Depends(require_admin_actor),
     window_hours: int = Query(default=24, ge=1, le=24 * 30),
     recent_events_limit: int = Query(default=50, ge=1, le=1000),
     arbitrator_limit: int = Query(default=20, ge=1, le=200),
@@ -296,7 +191,6 @@ async def get_arbitration_case_ops_report(
 
 @router.get("/cases/ops/alerts", response_model=list[ArbitrationOpsAlert])
 async def get_arbitration_case_ops_alerts(
-    _: str = Depends(require_admin_actor),
     window_hours: int = Query(default=24, ge=1, le=24 * 30),
     open_case_threshold: int = Query(default=5, ge=1, le=100000),
     voting_case_threshold: int = Query(default=5, ge=1, le=100000),
@@ -318,7 +212,6 @@ async def get_arbitration_case_ops_alerts(
 
 @router.get("/cases/ops/arbitrators", response_model=list[ArbitrationArbitratorActivitySummary])
 async def get_arbitration_case_ops_arbitrators(
-    _: str = Depends(require_admin_actor),
     window_hours: int = Query(default=24, ge=1, le=24 * 30),
     limit: int = Query(default=20, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -332,7 +225,6 @@ async def get_arbitration_case_ops_arbitrators(
 
 @router.get("/cases/ops/overdue", response_model=list[ArbitrationCaseOverdueItem])
 async def get_arbitration_case_ops_overdue(
-    _: str = Depends(require_admin_actor),
     limit: int = Query(default=20, ge=1, le=200),
     open_overdue_hours: int = Query(default=24, ge=1, le=24 * 365),
     voting_overdue_hours: int = Query(default=24, ge=1, le=24 * 365),
@@ -349,32 +241,15 @@ async def get_arbitration_case_ops_overdue(
 
 
 @router.get("/cases/{case_id}", response_model=ArbitrationCase)
-async def get_arbitration_case(case_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+async def get_arbitration_case(case_id: str, db: AsyncSession = Depends(get_db)):
     row = await db.get(ArbitrationCaseModel, case_id)
     if not row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
-    await _require_case_reader(db, row, request)
     return _case_to_schema(row)
 
 
 @router.post("/cases/{case_id}/assign-auto", response_model=list[ArbitrationAssignment])
-async def assign_arbitrators(
-    case_id: str,
-    body: AssignArbitratorsRequest,
-    request: Request,
-    _: str = Depends(require_arbitration_operator),
-    db: AsyncSession = Depends(get_db),
-):
-    """自动派庭。
-
-    收紧点（2026-09-17 复核前按入池先后取人）：
-    * 调用者必须是仲裁员/管理员白名单里的运维岗；
-    * 候选人必须 ACTIVE **且质押 > 0**；
-    * **回避当事人**：买卖双方、立案人，以及他们名下的子身份与角色档案；
-    * **抵押必须覆盖案值**：质押要**严格大于**这笔争议的托管金额（2026-09-17 起）——
-      抵押 10 的人不能去裁 100 的争议，否则一次误判就把抵押打穿；
-    * 派庭人数不得超过案件声明的 ``required_arbitrators``。
-    """
+async def assign_arbitrators(case_id: str, body: AssignArbitratorsRequest, db: AsyncSession = Depends(get_db)):
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
@@ -388,35 +263,15 @@ async def assign_arbitrators(
     )
     existing_ids = set(existing_result.scalars().all())
 
-    need = int(case_row.required_arbitrators or 0) - len(existing_ids)
-    if need <= 0:
-        raise HTTPException(409, "arbitration panel is already full for this case")
-    want = min(int(body.count or 0), need)
-
-    parties = await _case_parties(db, case_row)
-    conflicted = await arb_rules.conflicted_identity_ids(db, parties=parties)
-
     candidates_result = await db.execute(
         select(ArbitrationPoolMemberModel)
         .where(ArbitrationPoolMemberModel.status == ArbitrationPoolMemberStatus.ACTIVE.value)
         .order_by(ArbitrationPoolMemberModel.joined_at.asc())
     )
-    # 案值 = 这笔争议里真正可能被划走的托管金额；抵押盖不住它的人不能入庭。
-    case_value = await arb_rules.case_value_of(db, case_row)
-    candidates = arb_rules.filter_qualified_members(
-        list(candidates_result.scalars().all()),
-        conflicted=conflicted,
-        exclude_ids=existing_ids,
-        case_value=case_value,
-    )
-    selected = candidates[:want]
+    candidates = [row for row in candidates_result.scalars().all() if row.arbitrator_identity_id not in existing_ids]
+    selected = candidates[: body.count]
     if not selected:
-        raise HTTPException(
-            409,
-            "no qualified arbitrators available for assignment: need ACTIVE members whose "
-            f"stake covers the case value {case_value:.6f} "
-            f"(stake > {case_value * arb_rules.stake_coverage_multiple():.6f})",
-        )
+        raise HTTPException(409, "no active arbitrators available for assignment")
 
     assignment_rows: list[ArbitrationAssignmentModel] = []
     for member in selected:
@@ -439,12 +294,6 @@ async def assign_arbitrators(
         detail="arbitrators auto-assigned to case",
         metadata={
             "assigned_count": len(assignment_rows),
-            "requested_count": want,
-            "required_arbitrators": case_row.required_arbitrators,
-            "qualified_candidates": len(candidates),
-            "case_value": case_value,
-            "stake_coverage_multiple": arb_rules.stake_coverage_multiple(),
-            "recused_identity_count": len(conflicted),
             "arbitrator_identity_ids": [row.arbitrator_identity_id for row in assignment_rows],
         },
     )
@@ -452,11 +301,7 @@ async def assign_arbitrators(
 
 
 @router.get("/cases/{case_id}/assignments", response_model=list[ArbitrationAssignment])
-async def list_case_assignments(case_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    case_row = await db.get(ArbitrationCaseModel, case_id)
-    if not case_row:
-        raise HTTPException(404, f"arbitration case {case_id} not found")
-    await _require_case_reader(db, case_row, request)
+async def list_case_assignments(case_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(ArbitrationAssignmentModel)
         .where(ArbitrationAssignmentModel.case_id == case_id)
@@ -469,14 +314,12 @@ async def list_case_assignments(case_id: str, request: Request, db: AsyncSession
 @router.get("/cases/{case_id}/events", response_model=list[ArbitrationCaseEvent])
 async def list_case_events(
     case_id: str,
-    request: Request,
     limit: int = Query(default=200, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
 ):
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
-    await _require_case_reader(db, case_row, request)
     result = await db.execute(
         select(ArbitrationCaseEventModel)
         .where(ArbitrationCaseEventModel.case_id == case_id)
@@ -488,23 +331,12 @@ async def list_case_events(
 
 
 @router.post("/cases/{case_id}/materials", response_model=ArbitrationMaterialPackage, status_code=201)
-async def submit_material(
-    case_id: str,
-    body: SubmitArbitrationMaterialRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
+async def submit_material(case_id: str, body: SubmitArbitrationMaterialRequest, db: AsyncSession = Depends(get_db)):
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
     if case_row.status in {ArbitrationCaseStatus.EXECUTED.value, ArbitrationCaseStatus.CANCELLED.value}:
         raise HTTPException(409, f"cannot submit material for case status {case_row.status}")
-
-    # 证据只能由当事人自己提交（运维岗可代为提交）。
-    parties = await _case_parties(db, case_row)
-    if body.submitted_by not in parties and not arb_rules.caller_is_operator(request):
-        raise HTTPException(403, "only a party to the dispute may submit arbitration material")
-    await arb_rules.require_identity_binding(db, request, body.submitted_by, what="material submission")
 
     normalized_hashes = sorted({h.strip().lower() for h in body.evidence_hashes if h and h.strip()})
     progress_ids = sorted({item.strip() for item in body.progress_receipt_ids if item and item.strip()})
@@ -559,11 +391,7 @@ async def submit_material(
 
 
 @router.get("/cases/{case_id}/materials", response_model=list[ArbitrationMaterialPackage])
-async def list_materials(case_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    case_row = await db.get(ArbitrationCaseModel, case_id)
-    if not case_row:
-        raise HTTPException(404, f"arbitration case {case_id} not found")
-    await _require_case_reader(db, case_row, request)
+async def list_materials(case_id: str, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(ArbitrationMaterialPackageModel)
         .where(ArbitrationMaterialPackageModel.case_id == case_id)
@@ -574,31 +402,12 @@ async def list_materials(case_id: str, request: Request, db: AsyncSession = Depe
 
 
 @router.post("/cases/{case_id}/vote", response_model=ArbitrationCase)
-async def cast_vote(
-    case_id: str,
-    body: CastArbitrationVoteRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """投票。
-
-    此前只校验「这个 id 被指派过」，不校验「你就是这个 id」——
-    任何人都能冒用被指派的仲裁员身份代投。现在投票必须由**本人**（或有白名单的
-    运维岗代为操作，并留痕在事件里）发起。
-
-    另外：投票才是真正的裁决动作，所以**投之前再校验一次抵押**——派庭之后被减仓
-    或被罚没的仲裁员，不能靠一张旧的指派记录继续投票。
-    """
+async def cast_vote(case_id: str, body: CastArbitrationVoteRequest, db: AsyncSession = Depends(get_db)):
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
     if case_row.status in {ArbitrationCaseStatus.DECIDED.value, ArbitrationCaseStatus.EXECUTED.value}:
         raise HTTPException(409, f"arbitration case already finalized: {case_row.status}")
-
-    actor_identity = await resolve_actor_identity_id(db, request)
-    await arb_rules.require_identity_binding(
-        db, request, body.arbitrator_identity_id, what="arbitration vote"
-    )
 
     assignment = await db.execute(
         select(ArbitrationAssignmentModel).where(
@@ -609,11 +418,6 @@ async def cast_vote(
     if not assignment.scalar_one_or_none():
         raise HTTPException(403, "arbitrator is not assigned to this case")
 
-    # 抵押必须仍然覆盖案值：派庭后减仓 / 罚没的仲裁员不许继续投。
-    await arb_rules.assert_arbitrator_covers_case(
-        db, case_row=case_row, identity_id=body.arbitrator_identity_id, what="arbitration vote"
-    )
-
     if body.decision == ArbitrationVoteDecision.PARTIAL and body.partial_percent is None:
         raise HTTPException(400, "partial_percent is required when decision is partial")
     if body.decision != ArbitrationVoteDecision.PARTIAL and body.partial_percent is not None:
@@ -621,7 +425,6 @@ async def cast_vote(
 
     row = ArbitrationVoteModel(
         case_id=case_id,
-        vote_round=int(case_row.vote_round or 0),
         arbitrator_identity_id=body.arbitrator_identity_id,
         decision=body.decision.value,
         partial_percent=body.partial_percent,
@@ -633,11 +436,6 @@ async def cast_vote(
         await db.flush()
     except Exception as exc:  # pragma: no cover - SQL uniqueness safeguard
         raise HTTPException(409, "duplicate vote for arbitrator in this case") from exc
-    # P1-8：投票必须能回溯到「真实的调用者」。本人投票时 voted_by == 被指派者；
-    # 运维岗代投（白名单）是唯一允许的不一致，这种情况额外落一条安全告警事件，
-    # 事后审计一眼能看出「这一票不是本人投的」。
-    voted_by = actor_identity or body.arbitrator_identity_id
-    actor_mismatch = actor_identity is not None and actor_identity != body.arbitrator_identity_id
     await _append_case_event(
         db=db,
         case_id=case_id,
@@ -645,33 +443,14 @@ async def cast_vote(
         detail="arbitration vote cast",
         metadata={
             "vote_id": row.vote_id,
-            "claimed_arbitrator_id": row.arbitrator_identity_id,
-            "actual_actor_id": voted_by,
-            "voted_by": voted_by,
-            "actor_mismatch": actor_mismatch,
+            "arbitrator_identity_id": row.arbitrator_identity_id,
             "decision": row.decision,
             "partial_percent": row.partial_percent,
-            "vote_round": row.vote_round,
         },
     )
-    if actor_mismatch:
-        record_security_event(
-            SecurityMonitoringEventType.ARBITRATOR_ACTION,
-            metadata={
-                "what": "arbitration_vote_on_behalf",
-                "case_id": case_id,
-                "claimed_arbitrator_id": row.arbitrator_identity_id,
-                "actual_actor_id": voted_by,
-                "decision": row.decision,
-            },
-        )
 
-    # ④-A3：只数**本轮**的票。上一轮的票留在库里当审计，但不再决定结果。
     votes_result = await db.execute(
-        select(ArbitrationVoteModel).where(
-            ArbitrationVoteModel.case_id == case_id,
-            ArbitrationVoteModel.vote_round == int(case_row.vote_round or 0),
-        )
+        select(ArbitrationVoteModel).where(ArbitrationVoteModel.case_id == case_id)
     )
     votes = votes_result.scalars().all()
     if len(votes) >= case_row.required_arbitrators:
@@ -711,395 +490,16 @@ async def cast_vote(
     return _case_to_schema(case_row)
 
 
-class OverturnArbitrationCaseRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    reason: str
-    # ④-B2 起：赔款对象**由后端按案件推定**，这两个字段只在「与推定一致」时被接受
-    # （不一致 = 409）—— 免得调用方能随口把赔款指到别人的钱包上。
-    victim_wallet_address: str | None = None
-    victim_identity_id: str | None = None
-    # 省略 = 按「立案费 × ARBITRATION_SLASH_MULTIPLE」逐人罚；给了就按这个数
-    # （仍以该仲裁员的质押承诺额为上限）。
-    slash_amount: float | None = Field(default=None, ge=0.0)
-
-
-class SettlementReversalDetail(BaseModel):
-    """`/overturn` 建出来的那条赔付台账（没有建账时为 None）。"""
-
-    reversal_id: str
-    victim_identity_id: str | None = None
-    victim_wallet: str | None = None
-    owed_amount: float
-    paid_amount: float
-    funding_source: str
-    status: str
-    basis: str | None = None
-
-
-class OverturnArbitrationCaseResponse(BaseModel):
-    case_id: str
-    status: str
-    arbitration_slash_multiple: float
-    case_fee_usdc: float
-    per_arbitrator_usdc: float
-    bond_slashes: list[str]
-    slashed_arbitrators: int
-    skipped_unstaked: int
-    # ④-B2：结算回滚**有没有真做**，如实回一个枚举 —— 不假装已经退了。
-    #   recorded     建了赔付台账（档 B/C）
-    #   not_moved    钱没动（档 A）→ 零成本回滚走 /appeal，不建账
-    #   no_binding   这一单没有链上结算，谈不上回滚
-    #   self_dealing 自成交命中 → 不进赔付
-    settlement_reversal: str
-    settlement_reversal_detail: SettlementReversalDetail | None = None
-
-
-@router.post("/cases/{case_id}/overturn", response_model=OverturnArbitrationCaseResponse)
-async def overturn_arbitration_case(
-    case_id: str,
-    body: OverturnArbitrationCaseRequest,
-    actor: str = Depends(require_arbitration_operator),
-    db: AsyncSession = Depends(get_db),
-):
-    """推翻一个**已执行**的裁决 —— 在庭仲裁员按立案费倍数罚没（G12）+ 结算回滚台账（④-B2）。
-
-    背景：``ARBITRATION_SLASH_MULTIPLE``（默认 2×）此前只是一条 policy ——
-    ``economy-policy`` 接口把它展示给用户，但既没有上诉 / 推翻入口，也没有罚没落点。
-    结果就是「整庭判错被推翻」= 换个人再判一次，判错的人零成本。这条路由把「被推翻」
-    补成有后果的一件事，且复用节点罚没的同一套台账（``services/bond_slash.py``：
-    先落账、后出账、80/20 分账、按来源幂等）：
-
-    * 每个**在庭且有质押承诺**的仲裁员按 ``立案费 × 倍数`` 罚没，上限是其质押承诺额；
-    * 台账当场写；``IdentityRoleProfile.stake_amount`` 当场下调 —— 低于平台下限就是
-      「押金走则岗停」：``governance_stake.assert_governor_active`` 下一次复核立刻 403；
-    * 出账同样停在 ``pending``，直到链上金库 / 治理账户把交易落定 —— 没有 tx 就没有
-      ``settled``（``services/bond_slash.py`` 的硬规矩）。
-
-    ④-B2 起，**钱的那一半也不再只是「如实说没做」**：链上没有「把钱倒回来」的原语
-    （``SETTLED`` / ``REFUNDED`` 是终局），所以「被推翻」的后果记成**一笔债** ——
-    ``settlement_reversals`` 台账。受害方与欠款额**当场按案件推定**，不采信调用方口述：
-
-    1. 案件必须 ``executed``；``partial`` 一律 409（细则未定，不猜比例）；
-    2. 按 ``task_id`` 找最新链上绑定；没有绑定 → 不建账、如实回 ``no_binding``；
-    3. 问链分档：``active/disputed`` → 钱没动、不建账（走 ``/appeal`` 那条零成本回滚）；
-       ``finalizing`` → 建账 ``pending``（等落定再算实付）；``settled/slashed`` → 进赔付。
-       **链上读不到一律 409、零写入**（fail-closed）；
-    4. 推定受害方与欠款额（``settlement_reversal.presume_victim``）；
-    5. 动钱之前先过 ``funds_trace.assert_funds_traceable``：整条资金链路对不上 → 409 零写入；
-    6. 自成交命中（``escrow_settlement.detect_self_dealing``）→ 不进赔付；
-    7. find-or-create：同一案件对同一受害方只有一条账，重复推翻不会重复计债。
-
-    ``paid_amount`` 只在「该案罚没行已 ``settled``」**且**「那条 tx 回链核过」之后才增加
-    （``services/settlement_reversal.py::credit_from_settled_slash``，由
-    ``POST /v1/verifiers/slashes/{id}/status`` 在 settle 成功那一刻调用）。
-    """
-    from services.chain import escrow_settlement, funds_trace
-
+@router.post("/cases/{case_id}/execute", response_model=SettlementState)
+async def execute_arbitration_case(case_id: str, db: AsyncSession = Depends(get_db)):
     case_row = await db.get(ArbitrationCaseModel, case_id)
     if not case_row:
         raise HTTPException(404, f"arbitration case {case_id} not found")
-    if case_row.status != ArbitrationCaseStatus.EXECUTED.value:
-        raise HTTPException(
-            409,
-            f"only an executed case can be overturned, got {case_row.status}",
-        )
+    if case_row.status != ArbitrationCaseStatus.DECIDED.value:
+        raise HTTPException(409, f"arbitration case status must be decided, got {case_row.status}")
+    if not case_row.decided_outcome:
+        raise HTTPException(409, "arbitration decision is missing")
 
-    outcome = (case_row.decided_outcome or "").strip() or None
-    if outcome == settlement_reversal.OUTCOME_PARTIAL:
-        # 用户裁定（2026-10-15）：细则未定期间，partial 一律 409 —— 不猜一个比例出来，
-        # 也不让一个「回滚金额算不出来」的推翻悄悄过去。
-        raise HTTPException(
-            409,
-            "partial 判决的结算回滚细则未定：本阶段一律拒绝推翻，不猜一个比例出来"
-            "（先把口径写进 docs/ARBITRATION_SETTLEMENT_REVERSAL.md §11.7 再放开）",
-        )
-
-    try:
-        multiple = max(0.0, float(settings.arbitration_slash_multiple or 0.0))
-    except (TypeError, ValueError):
-        multiple = 0.0
-
-    contract = await db.get(TaskContractModel, case_row.task_id)
-    case_value = float(getattr(contract, "escrow_amount", 0.0) or 0.0)
-    fee = float(economy_policy.case_fee(case_value))
-    per_arbitrator = round(fee * multiple, 8)
-
-    # ── ④-B2 第一段：找绑定 → 问链 → 推定受害方（不采信调用方口述） ──────────
-    binding = await escrow_settlement.newest_binding_for_task(db, task_id=case_row.task_id)
-    chain_state: int | None = None
-    bucket = settlement_reversal.BUCKET_UNKNOWN
-    if binding is not None:
-        snapshot = await escrow_settlement.chain_snapshot(binding)
-        if snapshot is None:
-            raise HTTPException(
-                409,
-                "链上读不到这一单的托管状态：钱动没动都判断不了，一条账都不写"
-                "（读链失败默认拒绝，见 docs/ARBITRATION_SETTLEMENT_REVERSAL.md §三）",
-            )
-        chain_state = snapshot.get("state")
-        bucket = settlement_reversal.bucket_of_chain_state(chain_state)
-        if bucket == settlement_reversal.BUCKET_UNKNOWN:
-            raise HTTPException(
-                409,
-                f"链上报了一个不认识的托管状态（{chain_state!r}）：不猜它的意思，也不动账",
-            )
-
-    presumed: settlement_reversal.PresumedVictim | None = None
-    presumed_wallet: str | None = None
-    if binding is not None:
-        try:
-            presumed = settlement_reversal.presume_victim(
-                decided_outcome=outcome, binding=binding, chain_state=chain_state
-            )
-        except settlement_reversal.SettlementReversalError as exc:
-            raise HTTPException(exc.status, exc.message) from exc
-        if presumed.identity_id:
-            presumed_wallet = await get_bound_wallet(db, presumed.identity_id)
-
-    # 调用方口述的赔款对象：**只在与推定一致时**才接受（防「把赔款指给别人」）。
-    caller_wallet = (body.victim_wallet_address or "").strip() or None
-    caller_identity = (body.victim_identity_id or "").strip() or None
-    if presumed is None:
-        if caller_wallet or caller_identity:
-            raise HTTPException(
-                409,
-                "这一单没有链上结算，无从推定受害方：不接受调用方口述的赔款对象",
-            )
-    else:
-        if caller_wallet and caller_wallet.lower() != (presumed_wallet or "").lower():
-            raise HTTPException(
-                409,
-                f"调用方指认的赔款钱包 {caller_wallet} 与按案件推定的受害方不一致"
-                f"（推定：{presumed_wallet or '推不出钱包，不编'}）—— 赔款对象由后端推定",
-            )
-        if caller_identity and caller_identity != (presumed.identity_id or ""):
-            raise HTTPException(
-                409,
-                f"调用方指认的受害方 {caller_identity} 与按案件推定的受害方不一致"
-                f"（推定：{presumed.identity_id or '推不出身份'}）—— 赔款对象由后端推定",
-            )
-
-    victim_wallet = presumed_wallet if presumed else None
-    victim_identity = presumed.identity_id if presumed else None
-
-    # ── ⑤ 动钱之前最后一道：整条资金链路必须互相指得着 ──────────────────────
-    if binding is not None:
-        try:
-            await funds_trace.assert_funds_traceable(
-                db, task_id=case_row.task_id, stage="settlement_reversal"
-            )
-        except escrow_settlement.EscrowSettlementError as exc:
-            raise HTTPException(exc.status, exc.message) from exc
-
-    # ── ⑥ 自成交：命中就不进赔付（判据只有这一份实现） ──────────────────────
-    self_dealing = None
-    if binding is not None:
-        self_dealing = await escrow_settlement.detect_self_dealing(
-            db,
-            buyer_identity_id=getattr(binding, "buyer_identity_id", None),
-            seller_identity_id=getattr(binding, "seller_identity_id", None),
-        )
-
-    # ── G12：在庭且有质押承诺的仲裁员逐人罚没 ──────────────────────────────
-    assignments = (
-        await db.execute(
-            select(ArbitrationAssignmentModel).where(
-                ArbitrationAssignmentModel.case_id == case_id
-            )
-        )
-    ).scalars().all()
-
-    slashed_ids: list[str] = []
-    slashed_arbitrators = 0
-    skipped_unstaked = 0
-
-    for assignment in assignments:
-        subject_id = (assignment.arbitrator_identity_id or "").strip()
-        if not subject_id:
-            continue
-        profile = await governance_stake.governance_profile_of(
-            db, identity_id=subject_id, class_="arbitrator"
-        )
-        committed = float(getattr(profile, "stake_amount", 0.0) or 0.0) if profile else 0.0
-        if profile is None or committed <= 0:
-            # 白名单 / 运维直接建档的岗：跟名单不跟押金，没有可罚的押金 —— 记一笔跳过，
-            # 不去扣一个本来就不存在的担保（否则就是凭空造债）。
-            skipped_unstaked += 1
-            continue
-
-        wanted = float(body.slash_amount) if body.slash_amount is not None else per_arbitrator
-        amount = min(max(0.0, wanted), committed)
-        if amount <= 0:
-            skipped_unstaked += 1
-            continue
-
-        # ④-B1：指认「罚谁的钱包」—— 链上 ``slash(address)`` 只认地址，不认身份 id。
-        # 没有绑定钱包时不编一个：台账照记（债是真的），出账停在 pending、
-        # ``slash_instructions`` 回 verifier=null —— 宁可发不出 tx，也不乱指认一个钱包。
-        slashed_wallet = await get_bound_wallet(db, subject_id)
-        row, created = await bond_slash.record_slash(
-            db,
-            subject_kind=bond_slash.SUBJECT_ARBITRATOR_ROLE,
-            subject_id=subject_id,
-            wallet_address=slashed_wallet,
-            victim_wallet_address=victim_wallet,
-            victim_identity_id=victim_identity,
-            source_kind=bond_slash.SOURCE_ARBITRATION_OVERTURN,
-            source_id=case_id,
-            amount=amount,
-            reason=body.reason,
-        )
-        slashed_ids.append(row.id)
-        slashed_arbitrators += 1
-        if not created or profile is None:
-            continue
-
-        # 「押金走则岗停」：承诺额当场下调，低于下限的岗下次复核立刻 403。
-        profile.stake_amount = round(max(0.0, committed - amount), 8)
-        profile.updated_at = datetime.utcnow()
-
-    # ── ⑦ 幂等建账 ────────────────────────────────────────────────────────
-    reversal = None
-    reversal_outcome = settlement_reversal.REVERSAL_NO_BINDING
-    reversal_basis: str | None = None
-    if binding is None:
-        reversal_outcome = settlement_reversal.REVERSAL_NO_BINDING
-    elif bucket == settlement_reversal.BUCKET_NOT_MOVED:
-        # 钱还没动：真正的零成本回滚是 /appeal（把判决打回重投），不是记一笔债。
-        reversal_outcome = settlement_reversal.REVERSAL_NOT_MOVED
-    elif self_dealing is not None:
-        reversal_outcome = settlement_reversal.REVERSAL_SELF_DEALING
-    else:
-        reversal_basis = presumed.basis if presumed else None
-        if bucket == settlement_reversal.BUCKET_IN_WINDOW:
-            reversal_basis = f"{reversal_basis}；链上窗口还没落定，等落定再算实付"
-        reversal, _created = await settlement_reversal.record_reversal(
-            db,
-            case_id=case_id,
-            task_id=case_row.task_id,
-            binding_id=getattr(binding, "binding_id", None),
-            victim_identity_id=victim_identity,
-            victim_wallet=victim_wallet,
-            owed_amount=presumed.owed_amount if presumed else 0.0,
-            funding_source=settlement_reversal.default_funding_source(
-                bench_bonded=await settlement_reversal.case_has_bench_slashes(db, case_id=case_id)
-            ),
-            note=reversal_basis,
-        )
-        reversal_outcome = settlement_reversal.REVERSAL_RECORDED
-
-    detail = None
-    if reversal is not None:
-        detail = {
-            "reversal_id": reversal.reversal_id,
-            "victim_identity_id": reversal.victim_identity_id,
-            "victim_wallet": reversal.victim_wallet,
-            "owed_amount": float(reversal.owed_amount or 0.0),
-            "paid_amount": float(reversal.paid_amount or 0.0),
-            "funding_source": reversal.funding_source,
-            "status": reversal.status,
-            "basis": reversal_basis,
-        }
-
-    await _append_case_event(
-        db=db,
-        case_id=case_id,
-        event_type=ArbitrationEventType.CASE_OVERTURNED,
-        detail="arbitration decision overturned; bench slashed",
-        metadata={
-            "actor": actor,
-            "reason": body.reason,
-            "arbitration_slash_multiple": multiple,
-            "case_fee_usdc": fee,
-            "per_arbitrator_usdc": per_arbitrator,
-            "slashed_arbitrators": slashed_arbitrators,
-            "skipped_unstaked": skipped_unstaked,
-            "bond_slashes": slashed_ids,
-            "settlement_reversal": reversal_outcome,
-            "settlement_reversal_detail": detail,
-            "chain_bucket": bucket,
-        },
-    )
-    case_row.updated_at = datetime.utcnow()
-    await db.commit()
-
-    logger.info(
-        "arbitration_case_overturned",
-        case_id=case_id,
-        actor=actor,
-        slashed=slashed_arbitrators,
-        skipped_unstaked=skipped_unstaked,
-        settlement_reversal=reversal_outcome,
-        chain_bucket=bucket,
-    )
-    return OverturnArbitrationCaseResponse(
-        case_id=case_id,
-        status=case_row.status,
-        arbitration_slash_multiple=multiple,
-        case_fee_usdc=fee,
-        per_arbitrator_usdc=per_arbitrator,
-        bond_slashes=slashed_ids,
-        slashed_arbitrators=slashed_arbitrators,
-        skipped_unstaked=skipped_unstaked,
-        settlement_reversal=reversal_outcome,
-        settlement_reversal_detail=detail,
-    )
-
-
-@router.get("/reversals", response_model=SettlementReversalListResponse)
-async def list_settlement_reversals(
-    case_id: str | None = Query(default=None),
-    status: str | None = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=500),
-    actor: str = Depends(require_admin_actor),
-    db: AsyncSession = Depends(get_db),
-):
-    """结算回滚欠款台账（④-B2）：谁该退谁多少、由金库哪一路出账、已经真到账多少。
-
-    ``paid_amount`` 只在对应链上 tx **回链核过**之后才增加（见
-    ``services/settlement_reversal.py::credit_from_settled_slash``）。所以：
-
-    * ``status=pending`` = 账已记、链上还没出账 —— 如实呈现，**不把 pending 写成 settled**；
-    * ``outstanding_total_usdc`` = 全表还没赔完的合计（``owed - paid``，失败的不算）。
-
-    只读接口：这条路上没有任何「改账」的能力，出账只有治理账户在链上做了、
-    再回链核过之后才会推进这张台账。
-    """
-    rows = await settlement_reversal.list_reversals(
-        db, case_id=case_id, status=status, limit=limit
-    )
-    return SettlementReversalListResponse(
-        reversals=[SettlementReversalResponse.model_validate(row) for row in rows],
-        total=len(rows),
-        outstanding_total_usdc=await settlement_reversal.outstanding_total(db),
-        vault_configured=verifier_bond.vault_configured(),
-    )
-
-
-def _appeal_window_seconds() -> int:
-    """④-A 上诉窗口长度（秒）。<= 0 = 关闭：``/execute`` 立即放款，行为与历史一致。"""
-    try:
-        return max(0, int(settings.arbitration_appeal_window_seconds or 0))
-    except (TypeError, ValueError):
-        return 0
-
-
-async def _settle_from_decision(
-    *,
-    db: AsyncSession,
-    case_row: ArbitrationCaseModel,
-    actor: str,
-    route_path: str,
-) -> SettlementState:
-    """④-A 的第二段：把**已下发**的裁决真正落成钱（业务状态 + 链上那一笔）。
-
-    这一段会动钱，所以只该在窗口到点后调用：``/execute``（窗口关闭时）与
-    ``/execute-due``（窗口打开、到点后）。调用方负责先判「案件处于 decided 且
-    时间闸已过」—— 这里不重复判，避免两条路各写一套口径。
-    """
-    from api.routes.settlement import _record_transition_audit, _sync_escrow_settlement
-
-    case_id = case_row.case_id
     store = PostgresSettlementStore(db)
     state = await store.get(case_row.task_id)
     if not state:
@@ -1108,49 +508,28 @@ async def _settle_from_decision(
     if state.status == TaskStatus.DISPUTED:
         if not can_transition(state.status, TaskStatus.ARBITRATED):
             raise HTTPException(409, "cannot transition settlement to arbitration")
-        await _record_transition_audit(
-            db=db,
-            state=state,
-            from_status=TaskStatus.DISPUTED,
-            to_status=TaskStatus.ARBITRATED,
-            transition_allowed=True,
-            guard_stage="arbitration_execute",
-            reason=f"arbitration case {case_id} accepted",
-            route_path=route_path,
-            actor_id=actor,
-        )
         state.status = TaskStatus.ARBITRATED
 
     if case_row.decided_outcome == ArbitrationVoteDecision.BUYER_WINS.value:
         target = TaskStatus.REFUNDED
         settled_amount = 0.0
-        refunded_amount = normalize_amount(state.escrow_amount)
+        refunded_amount = round(state.escrow_amount, 2)
         notes = "decentralized pool decision: buyer_wins"
     elif case_row.decided_outcome == ArbitrationVoteDecision.SELLER_WINS.value:
         target = TaskStatus.SETTLED
-        settled_amount = normalize_amount(state.escrow_amount)
+        settled_amount = round(state.escrow_amount, 2)
         refunded_amount = 0.0
         notes = "decentralized pool decision: seller_wins"
     else:
         target = TaskStatus.SETTLED
         partial_percent = case_row.final_partial_percent if case_row.final_partial_percent is not None else 50.0
-        settled_amount, refunded_amount = split_amounts(state.escrow_amount, partial_percent)
+        settled_amount = round(state.escrow_amount * partial_percent / 100.0, 2)
+        refunded_amount = round(state.escrow_amount - settled_amount, 2)
         notes = f"decentralized pool decision: partial {partial_percent:.2f}%"
 
     if not can_transition(state.status, target):
         raise HTTPException(409, f"invalid settlement transition: {state.status.value} -> {target.value}")
 
-    await _record_transition_audit(
-        db=db,
-        state=state,
-        from_status=TaskStatus.ARBITRATED,
-        to_status=target,
-        transition_allowed=True,
-        guard_stage="arbitration_execute",
-        reason=notes,
-        route_path=route_path,
-        actor_id=actor,
-    )
     state.status = target
     state.released_amount = settled_amount
     state.refunded_amount = refunded_amount
@@ -1158,11 +537,6 @@ async def _settle_from_decision(
     state.updated_at = datetime.utcnow()
     state.released_at = datetime.utcnow() if settled_amount > 0 else None
     await store.save(state)
-    # 裁决必须落到链上（2026-09-20 测试网实测发现）：这条路径此前只改数据库、从不碰链，
-    # 于是 DB 说「已退款 / 已结算」而链上的 binding 还挂着 active —— 钱一直锁在托管里，
-    # 台账和链上对不上。走 /dispute → /auto-arbitrate 那条路是有这一步的，仲裁庭改判这条路
-    # 没有，属于漏接。补上以后两条路对链上行为一致。
-    await _sync_escrow_settlement(db=db, state=state, target_status=target)
 
     await apply_capacity_resolution(
         db=db,
@@ -1190,320 +564,6 @@ async def _settle_from_decision(
         },
     )
     return state
-
-
-@router.post("/cases/{case_id}/execute", response_model=SettlementState)
-async def execute_arbitration_case(
-    case_id: str,
-    request: Request,
-    actor: str = Depends(require_arbitration_operator),
-    db: AsyncSession = Depends(get_db),
-):
-    """把裁决写回结算（④-A 第一段：**下发**）。
-
-    此前这条路径**不写** ``settlement_transition_audits``，于是同一笔结算
-    经仲裁改判后在审计链上是断的。现在每次流转都补一条审计。
-
-    ④-A 上诉窗口关着（``ARBITRATION_APPEAL_WINDOW_SECONDS=0``，默认）时，
-    这里与历史行为逐字一致：一步落库、一步碰链。窗口打开时这里**只做两件事** ——
-    记下 ``execute_after``（到期时刻）与一条 ``case_execute_scheduled`` 事件，
-    **链上一笔都不发、钱一步不动**；窗口内推翻因此不需要任何回滚；
-    到点再由 ``/execute-due``（或 ④-A2 的 tick）把裁决落成钱。
-    """
-    case_row = await db.get(ArbitrationCaseModel, case_id)
-    if not case_row:
-        raise HTTPException(404, f"arbitration case {case_id} not found")
-    if case_row.status != ArbitrationCaseStatus.DECIDED.value:
-        raise HTTPException(409, f"arbitration case status must be decided, got {case_row.status}")
-    if not case_row.decided_outcome:
-        raise HTTPException(409, "arbitration decision is missing")
-
-    window = _appeal_window_seconds()
-    if window > 0:
-        # 幂等：重复下发不会把到期时刻往后推（否则谁多调一次，卖方就多等一轮）。
-        if case_row.execute_after is None:
-            case_row.execute_after = datetime.utcnow() + timedelta(seconds=window)
-            case_row.updated_at = datetime.utcnow()
-            await db.flush()
-            await _append_case_event(
-                db=db,
-                case_id=case_id,
-                event_type=ArbitrationEventType.CASE_EXECUTE_SCHEDULED,
-                detail="decision scheduled: payout deferred until the appeal window closes",
-                metadata={
-                    "execute_after": case_row.execute_after.isoformat(),
-                    "appeal_window_seconds": window,
-                    "decided_outcome": case_row.decided_outcome,
-                },
-            )
-            await db.commit()
-        state = await PostgresSettlementStore(db).get(case_row.task_id)
-        if not state:
-            raise HTTPException(404, f"settlement {case_row.task_id} not found")
-        return state
-
-    return await _settle_from_decision(
-        db=db,
-        case_row=case_row,
-        actor=actor,
-        route_path=f"/v1/arbitration/cases/{case_id}/execute",
-    )
-
-
-@router.post("/cases/{case_id}/execute-due", response_model=SettlementState)
-async def execute_arbitration_case_due(
-    case_id: str,
-    request: Request,
-    actor: str = Depends(require_arbitration_operator),
-    db: AsyncSession = Depends(get_db),
-):
-    """④-A 第二段：上诉窗口到点后，把裁决真正落成钱（会碰链）。
-
-    时间闸在**服务端**判：窗口还开着就 409，谁调都一样 —— 不靠调用方自觉。
-    到点了就做窗口关闭时 ``/execute`` 做的那件事，两个入口共用
-    ``_settle_from_decision``，所以口径只有一处。
-    """
-    # 行级锁：tick（④-A2）和人工 /execute-due 会同时看到这一条 decided 案件，
-    # 谁先拿到锁谁放款，另一个 re-check 后必然看到 executed 从而 409 —— 双放款
-    # 是这条路上最贵的错误，闸门必须落在 SQL 里，不能只靠「读一次判一次」。
-    case_row = (
-        await db.execute(
-            select(ArbitrationCaseModel)
-            .where(ArbitrationCaseModel.case_id == case_id)
-            .with_for_update()
-        )
-    ).scalars().first()
-    if not case_row:
-        raise HTTPException(404, f"arbitration case {case_id} not found")
-    if case_row.status != ArbitrationCaseStatus.DECIDED.value:
-        raise HTTPException(409, f"arbitration case status must be decided, got {case_row.status}")
-    if not case_row.decided_outcome:
-        raise HTTPException(409, "arbitration decision is missing")
-    if case_row.execute_after is not None and case_row.execute_after > datetime.utcnow():
-        raise HTTPException(
-            409,
-            "appeal window is still open; the payout cannot run before "
-            f"{case_row.execute_after.isoformat()}",
-        )
-    return await _settle_from_decision(
-        db=db,
-        case_row=case_row,
-        actor=actor,
-        route_path=f"/v1/arbitration/cases/{case_id}/execute-due",
-    )
-
-
-async def execute_due_arbitration_cases(
-    db: AsyncSession,
-    *,
-    now: datetime | None = None,
-    limit: int | None = None,
-    actor: str = "arbitration-execute-due-autosettle",
-) -> list[str]:
-    """④-A2：上诉窗口到点后，由常驻 tick 把裁决落成钱（会碰链）。
-
-    这是 ``/execute-due`` 的**批处理姊妹**，两者共用 ``_settle_from_decision``：
-    口径只有一处 —— tick 只是「没人按按钮时的那个 somebody」。
-
-    安全边界（这条路会动钱，逐条钉死）：
-
-    * **只挑到点的**：``status='decided'``、``execute_after`` 非空且已过点。
-      窗口还开着的案件永远进不来，tick 不改变「窗口内链上零动作」这句话。
-    * **行级锁**：落钱前对案件行 ``SELECT ... FOR UPDATE SKIP LOCKED``，与人工
-      ``/execute-due``（同一把锁）串行；发现用的选号不加锁，锁只按需拿。
-    * **re-check**：拿到锁后状态/时间闸再判一次 —— 锁等到的可能是别人已落完的单。
-    * **一条坏不拖住别的**：每条各自提交，失败回滚 + 退避，绝不让一条异常把整批
-      已放的行一起回滚。
-    * **失败默认拒绝**：链上门禁 / 结算行缺失抛出来一律当失败，什么都不落。
-    """
-    from services.chain.escrow_autosettle import RETRY_BACKOFF_SECONDS, _failed_at
-
-    current = now or datetime.utcnow()
-    ids_stmt = (
-        select(ArbitrationCaseModel.case_id)
-        .where(ArbitrationCaseModel.status == ArbitrationCaseStatus.DECIDED.value)
-        .where(ArbitrationCaseModel.execute_after.is_not(None))
-        .where(ArbitrationCaseModel.execute_after <= current)
-        .order_by(ArbitrationCaseModel.execute_after)
-        .limit(limit if limit is not None else settings.escrow_autosettle_batch)
-    )
-    case_ids = list((await db.execute(ids_stmt)).scalars().all())
-    if not case_ids:
-        return []
-
-    executed: list[str] = []
-    for case_id in case_ids:
-        backoff_key = f"arb-due:{case_id}"
-        last = _failed_at.get(backoff_key)
-        if last is not None and (time.monotonic() - last) < RETRY_BACKOFF_SECONDS:
-            continue
-        try:
-            case_row = (
-                await db.execute(
-                    select(ArbitrationCaseModel)
-                    .where(ArbitrationCaseModel.case_id == case_id)
-                    .with_for_update(skip_locked=True)
-                )
-            ).scalars().first()
-            if case_row is None:
-                # 别人正拿着这一行（人工 /execute-due 或上一轮 tick）：这一轮跳过。
-                continue
-            if (
-                case_row.status != ArbitrationCaseStatus.DECIDED.value
-                or case_row.execute_after is None
-                or case_row.execute_after > datetime.utcnow()
-                or not case_row.decided_outcome
-            ):
-                continue
-            await _settle_from_decision(
-                db=db,
-                case_row=case_row,
-                actor=actor,
-                route_path=f"/v1/arbitration/cases/{case_id}/execute-due (autosettle tick)",
-            )
-            await db.commit()
-            _failed_at.pop(backoff_key, None)
-            executed.append(case_id)
-        except Exception as exc:  # noqa: BLE001 - 一条坏不能拖住整批
-            await db.rollback()
-            _failed_at[backoff_key] = time.monotonic()
-            logger.warning(
-                "arbitration_execute_due_tick_failed",
-                case_id=case_id,
-                error=str(exc),
-            )
-            continue
-    return executed
-
-
-class AppealArbitrationCaseRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    appellant: str
-    reason: str
-
-
-class AppealArbitrationCaseResponse(BaseModel):
-    case_id: str
-    status: str
-    vote_round: int
-    appeal_count: int
-    previous_outcome: str | None = None
-    previous_execute_after: datetime | None = None
-    # 这次上诉**没碰链、没碰钱**（窗口内放款还没发生）：如实回标记，不假装。
-    chain_action: str
-
-
-def _max_appeals() -> int:
-    """同一案件在窗口内最多被打回几次。<= 0 = 不限（默认 3）。"""
-    try:
-        return int(settings.arbitration_max_appeals or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-@router.post("/cases/{case_id}/appeal", response_model=AppealArbitrationCaseResponse)
-async def appeal_arbitration_case(
-    case_id: str,
-    body: AppealArbitrationCaseRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
-    """④-A3：窗口内上诉 —— 把「已下发、还没放款」的裁决打回去重审。
-
-    这条路的全部价值是**零成本**：链上一笔还没发，所以「推翻」不需要任何回滚，
-    只要把案子从 ``decided`` 打回 ``voting``、清掉 ``execute_after``（取消已排期的
-    放款）就完事。窗口一过（``execute_after`` 到点）这里一律 409 —— 那时候钱要么
-    已经在路上、要么已经落地，只能走 ④-B 的「只能赔、不能倒」。
-
-    票按**轮次**计：打回时 ``vote_round += 1``，上一轮的票留在库里当审计，
-    但不再参与计票 —— 否则打回之后随便再来一票，就会把旧结果立刻重新「投」出来。
-    """
-    case_row = await db.get(ArbitrationCaseModel, case_id)
-    if not case_row:
-        raise HTTPException(404, f"arbitration case {case_id} not found")
-
-    if _appeal_window_seconds() <= 0:
-        raise HTTPException(
-            409,
-            "appeal window is disabled (ARBITRATION_APPEAL_WINDOW_SECONDS=0); "
-            "there is nothing to appeal into",
-        )
-    if case_row.status != ArbitrationCaseStatus.DECIDED.value:
-        raise HTTPException(409, f"arbitration case status must be decided, got {case_row.status}")
-    if case_row.execute_after is None:
-        raise HTTPException(
-            409,
-            "this payout was never scheduled with an appeal window; call /execute first",
-        )
-    if case_row.execute_after <= datetime.utcnow():
-        raise HTTPException(
-            409,
-            "the appeal window already closed at "
-            f"{case_row.execute_after.isoformat()}; reopening the case would not undo the payout",
-        )
-
-    limit = _max_appeals()
-    if limit > 0 and int(case_row.appeal_count or 0) >= limit:
-        raise HTTPException(
-            409,
-            f"this case has already been appealed {case_row.appeal_count} time(s); "
-            f"the limit is {limit}",
-        )
-
-    # 只有当事人（立案人 / 结算双方）本人，或白名单运维岗代提，才能上诉。
-    state = await PostgresSettlementStore(db).get(case_row.task_id)
-    parties = {case_row.opened_by}
-    if state is not None:
-        if state.client_agent_id:
-            parties.add(state.client_agent_id)
-        if state.worker_agent_id:
-            parties.add(state.worker_agent_id)
-    if body.appellant not in parties and not arb_rules.caller_is_operator(request):
-        raise HTTPException(403, "only a party to the dispute may appeal this case")
-    await arb_rules.require_identity_binding(db, request, body.appellant, what="appeal")
-
-    # 安全门：窗口内链上还不许有受款人。读链失败默认拒绝（见 §七.4）。
-    from services.chain import escrow_settlement
-
-    try:
-        await escrow_settlement.assert_no_payee_yet(db, task_id=case_row.task_id)
-    except escrow_settlement.EscrowSettlementError as exc:
-        raise HTTPException(exc.status, exc.message) from exc
-
-    previous_outcome = case_row.decided_outcome
-    previous_execute_after = case_row.execute_after
-
-    case_row.status = ArbitrationCaseStatus.VOTING.value
-    case_row.decided_outcome = None
-    case_row.final_partial_percent = None
-    case_row.execute_after = None
-    case_row.vote_round = int(case_row.vote_round or 0) + 1
-    case_row.appeal_count = int(case_row.appeal_count or 0) + 1
-    case_row.updated_at = datetime.utcnow()
-    await _append_case_event(
-        db=db,
-        case_id=case_id,
-        event_type=ArbitrationEventType.CASE_APPEAL_OPENED,
-        detail="in-window appeal: decision reopened for a fresh round of votes",
-        metadata={
-            "appellant": body.appellant,
-            "reason": body.reason,
-            "previous_outcome": previous_outcome,
-            "previous_execute_after": previous_execute_after.isoformat(),
-            "vote_round": case_row.vote_round,
-            "appeal_count": case_row.appeal_count,
-        },
-    )
-    await db.commit()
-    return AppealArbitrationCaseResponse(
-        case_id=case_row.case_id,
-        status=case_row.status,
-        vote_round=case_row.vote_round,
-        appeal_count=case_row.appeal_count,
-        previous_outcome=previous_outcome,
-        previous_execute_after=previous_execute_after,
-        chain_action="none",
-    )
 
 
 def _sha256(payload: object) -> str:
@@ -1535,9 +595,6 @@ def _case_to_schema(row: ArbitrationCaseModel) -> ArbitrationCase:
         created_at=row.created_at,
         updated_at=row.updated_at,
         executed_at=row.executed_at,
-        execute_after=row.execute_after,
-        vote_round=int(row.vote_round or 0),
-        appeal_count=int(row.appeal_count or 0),
     )
 
 

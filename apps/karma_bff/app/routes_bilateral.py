@@ -130,7 +130,7 @@ async def finalize(binding_id: int, _hmac: Annotated[str | None, Depends(read_hm
     account = w3.eth.account.from_key(config.testnet_private_key)
     tx = contract.functions.finalizeSettle(binding_id).build_transaction({
         "from": account.address,
-        "nonce": w3.eth.get_transaction_count(account.address),
+        "nonce": w3.eth.get_transaction_count(account.address, "pending"),
         "gas": 500000,
     })
     signed = account.sign_transaction(tx)

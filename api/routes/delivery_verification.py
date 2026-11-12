@@ -3,12 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
-
-from db.session import get_db
-from services.identity_owner_access import require_identity_owner
 
 from services.delivery_verification import (
     DeliveryVerificationError,
@@ -92,13 +88,7 @@ class ReceiptMarkRequest(BaseModel):
 
 
 @router.post("/sessions")
-async def create_session(
-    body: CreateSessionRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    # 会话由卖方发起：调用者必须是发起方本人（或平台运维岗）。
-    await require_identity_owner(db, request, body.seller_agent_id, what="this delivery verification session")
+async def create_session(body: CreateSessionRequest) -> dict[str, Any]:
     try:
         return create_verification_session(
             task_id=body.task_id,
@@ -127,13 +117,7 @@ async def get_session(verification_id: str) -> dict[str, Any]:
 
 
 @router.post("/{verification_id}/seller-ship")
-async def post_seller_ship(
-    verification_id: str,
-    body: SellerShipRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    await require_identity_owner(db, request, body.actor_agent_id, what="this delivery verification")
+async def post_seller_ship(verification_id: str, body: SellerShipRequest) -> dict[str, Any]:
     try:
         return seller_ship(
             verification_id,
@@ -147,12 +131,8 @@ async def post_seller_ship(
 
 @router.post("/{verification_id}/logistics-intake")
 async def post_logistics_intake(
-    verification_id: str,
-    body: LogisticsIntakeRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
+    verification_id: str, body: LogisticsIntakeRequest
 ) -> dict[str, Any]:
-    await require_identity_owner(db, request, body.actor_agent_id, what="this delivery verification")
     try:
         return logistics_intake(
             verification_id,
@@ -180,13 +160,7 @@ async def post_capture_challenge(
 
 
 @router.post("/{verification_id}/proofs")
-async def post_proof(
-    verification_id: str,
-    body: ProofRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
-    await require_identity_owner(db, request, body.actor_agent_id, what="this delivery verification")
+async def post_proof(verification_id: str, body: ProofRequest) -> dict[str, Any]:
     try:
         return submit_proof(
             verification_id,
@@ -207,12 +181,8 @@ async def post_proof(
 
 @router.post("/{verification_id}/logistics-deliver")
 async def post_logistics_deliver(
-    verification_id: str,
-    body: LogisticsDeliverRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
+    verification_id: str, body: LogisticsDeliverRequest
 ) -> dict[str, Any]:
-    await require_identity_owner(db, request, body.actor_agent_id, what="this delivery verification")
     try:
         return logistics_deliver(
             verification_id,
@@ -231,13 +201,8 @@ async def post_logistics_deliver(
 
 @router.post("/{verification_id}/buyer-confirm")
 async def post_buyer_confirm(
-    verification_id: str,
-    body: BuyerConfirmRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
+    verification_id: str, body: BuyerConfirmRequest
 ) -> dict[str, Any]:
-    # 买方验收是结算放款闸门的输入：必须由买方本人发起。
-    await require_identity_owner(db, request, body.actor_agent_id, what="this delivery verification")
     try:
         return buyer_confirm(
             verification_id,

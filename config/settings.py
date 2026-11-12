@@ -2,25 +2,9 @@
 Karma — Global Settings (Public)
 """
 from functools import lru_cache
-from datetime import datetime, timezone
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-@lru_cache(maxsize=8)
-def _parse_iso_utc(value: str) -> datetime | None:
-    """ISO8601 UTC 解析（带缓存）；解析失败返回 None。"""
-    value = (value or "").strip()
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
 
 
 class Settings(BaseSettings):
@@ -31,11 +15,6 @@ class Settings(BaseSettings):
     app_host: str = "0.0.0.0"
     app_port: int = 8000
     app_secret_key: str = "change-me-in-production"
-    # 双 key 平滑轮换：上一把签发钥 + 过渡期硬截止（ISO8601 UTC，如 2026-11-01T00:00:00Z）。
-    # 两个都填才进入「过渡期」；任一缺失 / 已过期 = 立刻回到单 key。
-    # 急刹车：清空 APP_SECRET_KEY_PREVIOUS（或把截止时间改到过去）。
-    app_secret_key_previous: str = ""
-    app_secret_key_previous_until: str = ""
     # Comma-separated static API keys: "agent-1:supersecret,agent-2:anothersecret".
     # Required in production for secure token issuance / API-key auth.
     auth_api_keys: str = ""
@@ -50,194 +29,13 @@ class Settings(BaseSettings):
     # resolve disputes via /miniapp/disputes/resolve. Empty in production is rejected;
     # in development an empty list falls back to admin_actor_ids for convenience.
     arbitrator_actor_ids: str = ""
-    # ---- 仲裁规则（P0-1 收紧，2026-09-17）--------------------------------
-    # 调用者必须绑定到自己宣称的仲裁员身份（或案件当事人），运维白名单可代为操作。
-    # 关掉它等于恢复「任何登录身份都能替别人投票」，生产环境必须是 true。
-    arbitration_require_actor_binding: bool = True
-    # 仲裁池是「开放申请」还是「仅限 ARBITRATOR_ACTOR_IDS 白名单」。
-    # 两种模式下都只能给自己入池，且质押必须有真实锁仓背书。
-    arbitration_pool_open_join: bool = False
-    # 仲裁庭人数窗口：调用方不能自填人数，只能落在这个区间内。
-    arbitration_min_arbitrators: int = 3
-    arbitration_max_arbitrators: int = 21
-    # 入池质押的下限（0 表示只要求 > 0），以及是否必须由已锁仓 USDC 背书。
-    arbitration_min_stake_amount: float = 0.0
-    arbitration_require_backed_stake: bool = True
-    # 抵押必须覆盖案值：仲裁员质押要**严格大于** 案值 × 这个倍数（默认 1.0，
-    # 即「被处理的订单金额必须低于抵押」）。调高就是给抵押留安全垫
-    # （例如 1.5 = 抵押至少是案值的 1.5 倍）。生产环境不允许小于 1.0。
-    arbitration_stake_coverage_multiple: float = 1.0
-
-    # ④-B1（2026-10-15）：仲裁员的质押必须**真的锁在链上金库**（KarmaVerifierBond），
-    # 不只是账面上的 ``capacity.total_locked_usdc``。打开后入池 / 投票都回链上核对：
-    # 该身份在 Console 绑定的钱包必须已在金库 ``stake()`` 过、且 ``bondAmount >= 质押额``。
-    # 为什么要有这一档：账面质押可以用锁仓额度「充数」，但链上 ``slash()`` 只认
-    # 金库里那笔 ``Bond`` —— 押金不在金库，罚没出账就没有可划的钱，「质押即准入」是空的。
-    # 金库没配（VERIFIER_BOND_VAULT_ADDRESS 为空）时这一档**不生效**（测试网先跑通）。
-    arbitration_require_vault_bond: bool = False
-
-    # ---- 收益口径（policy preview，2026-10-08）--------------------------------
-    # 这一组数是**对外公布的收益标准**：操作台「验证者身份 / 仲裁者身份」两页把它
-    # 原样摊给申请人看（见 services/economy_policy.py + GET /v1/console/economy-policy）。
-    #
-    # 边界必须说清楚：这一层现在**只做展示**。验证者的奖励在链上
-    # ``VerifierRegistry.verificationReward``（一条固定值，还没有按案值比例走），
-    # 仲裁费在 ``arbitration_cases`` 里连字段都还没有。所以那个接口回的
-    # ``status`` 是 ``policy-preview``：口径已定、钱还没按这个口径走。
-    # 改这里的数 = 改页面上公示的数；真要改结算口径，得连同上面那几条一起改。
-    #
-    # 结算手续费（bps of GMV；真正的费率与拆分在 karma-economy 的 FeeBridge，这里只作展示）。
-    settlement_fee_bps: float = 50.0
-    # 验证者网络：案值 ≥ 这个数才启动门限核验，小额单走平台单机核验。
-    verifier_network_min_case_usdc: float = 100.0
-    # 每条**计入门限**的有效出证 = 案值 × bps，夹在 [min, max] 之间。
-    verifier_reward_bps: float = 1.0
-    verifier_reward_min_usdc: float = 0.02
-    verifier_reward_max_usdc: float = 1.0
-    # 门限 N-of-M：M 张出证里只有计入门限的那 N 张拿钱（否则等于奖励刷单）。
-    verifier_quorum_required: int = 3
-    verifier_quorum_total: int = 5
-    # 出证被判错：不付奖励，并罚没质押（链上 VerifierRegistry.slash）。
-    verifier_slash_on_false_attestation: bool = True
-    # 节点自有 key 的签名校验：打开后 /v1/verifiers 的写接口（登记 / 改质押 / 出证 /
-    # 开挑战 / 裁决挑战）必须带节点钱包签出来的 signature + signature_nonce ——
-    # 光有一个登录会话不够（见 services/verifier_wallet.py）。
-    # 默认关（测试网先跑通），生产强制打开。
-    verifier_require_node_signature: bool = False
-
-    # ---- 验证者质押金库（G12）：质押从「入场券」升级成真担保 --------------------
-    # 背景：此前 ``verifier_nodes.stake_amount`` 只是一个记数 —— 没有锁仓背书、没有
-    # 下限，也没有罚没 / 退出闭环，所以「质押即准入」不是担保。现在把节点也做成
-    # 「跟押金走」的一档（与 services/governance_stake.py 同一套判法）：
-    #
-    #   * ``VERIFIER_MIN_BOND_USDC``：有效节点必须押够这个数（0 = 不设下限）。下限是**部署
-    #     参数**，不在启动时强制非零 —— 真正的闸门在 ``services/verifier_bond.py``：
-    #     质押必须 > 0 且由已锁仓 USDC 背书，否则 422/403；
-    #   * ``VERIFIER_REQUIRE_BACKED_BOND``：押金必须由**已锁仓 USDC** 背书
-    #     （``capacity.total_locked_usdc``）—— 与仲裁 / 治理岗看的是同一本账；
-    #   * ``VERIFIER_REQUIRE_OWNER_IDENTITY``：登记节点必须声明主人身份
-    #     （生产强制打开），否则谁都能量产匿名节点；
-    #   * ``VERIFIER_UNBOND_COOLDOWN_HOURS``：退出冷却期，冷却期内仍可被罚没；
-    #   * ``VERIFIER_BOND_VAULT_ADDRESS``：链上 ``KarmaVerifierBond`` 地址。
-    #     空 = 金库还没部署：账照记、状态照改，但罚没出账一律停在 ``pending``，
-    #     不许伪造成 ``settled``（见 services/bond_slash.py）。
-    #
-    # 罚没分账 80/20：80% 给受害方，20% 进罚没池；两个数必须相加 = 10000。
-    verifier_min_bond_usdc: float = 0.0
-    verifier_require_backed_bond: bool = True
-    verifier_require_owner_identity: bool = False
-    verifier_unbond_cooldown_hours: int = 72
-    verifier_bond_vault_address: str = ""
-    # ④-B1：读链用的 RPC。缺省回落到 ``TESTNET_RPC_URL``；与 ops CLI 同名同序，
-    # 避免「脚本读得到、后端读不到」。
-    verifier_bond_rpc_url: str = ""
-    verifier_slash_victim_share_bps: int = 8000
-    verifier_slash_pool_share_bps: int = 2000
-
-    # ④-B1：节点质押同样要求真的在链上金库里（口径与仲裁员一致，见
-    # arbitration_require_vault_bond）。节点钱包取 ``verifier_nodes.wallet_address``。
-    verifier_require_vault_bond: bool = False
-    # 仲裁：立案费 = 案值 × bps，夹在 [min, max] 之间，由**败诉方**承担。
-    arbitration_fee_bps: float = 150.0
-    arbitration_fee_min_usdc: float = 0.5
-    arbitration_fee_max_usdc: float = 100.0
-    arbitration_fee_loser_pays: bool = True
-    # 整庭裁决被推翻：按立案费的这个倍数罚没该庭抵押。
-    arbitration_slash_multiple: float = 2.0
-    # 上诉窗口（④-A，2026-10-14）：裁决「下发」与「放款」之间插一段缓冲。
-    #   0（默认）= 关闭：``/execute`` 与历史行为**完全一致**（落库 + 碰链一步走）。
-    #   >0        = 打开：``/execute`` 只记 ``execute_after``（到期时刻），**链上一笔不发、
-    #               钱一步不动**；窗口内推翻零成本；到点由
-    #               ``POST /v1/arbitration/cases/{id}/execute-due``（或 ④-A2 的 tick）落钱。
-    # 为什么需要它：链上没有「把钱倒回来」的原语（见
-    # docs/ARBITRATION_SETTLEMENT_REVERSAL.md）—— 唯一的零成本回滚窗口，
-    # 就是「还没开链上结算窗」之前。窗口多长由产品/风控拍板 —— 用户 2026-10-15 拍板：
-    # **测试网 3000s**（本地默认仍是 0 = 关，行为与历史逐字一致）。
-    arbitration_appeal_window_seconds: int = 0
-
-    # ④-A3 同一案件在窗口内最多被打回几次（防无限拖期）。窗口关着时用不到。
-    arbitration_max_appeals: int = 3
-
-    # Comma-separated identity ids allowed to hold governance role profiles
-    # (class=verifier / arbitrator). Empty means nobody can self-create one over the
-    # API; the operational grant path is scripts/ops/grant_governance_role.py on the
-    # server. Either way an identity can never review its own filing.
-    governance_verifier_ids: str = ""
-    # ---- 治理岗的第二条入口：质押即开通（默认关闭）----------------------------
-    # 打开之后，任何身份都能凭质押开 verifier / arbitrator 岗，不必等运维点名；
-    # 但质押必须是**已经锁仓的 USDC**，而且岗会跟着押金走：押金被划走（含罚没）
-    # 这个岗立刻失效，不需要再维护一张状态表（见 services/governance_stake.py）。
-    # 生产环境不允许「开放申请 + 0 下限」的组合，见下面的生产校验。
-    governance_open_join: bool = False
-    governance_min_stake_amount: float = 0.0
-    governance_require_backed_stake: bool = True
-    # Comma-separated identity ids allowed through the *platform bootstrap* approval
-    # channel (scripts/maintenance/approve_identity_verification.py). That channel
-    # signs as "platform:bootstrap" and exists only because a brand-new platform has
-    # exactly one identity, which is therefore its own only reviewer.
-    # Empty means nobody: the channel must stay scoped to platform-owned identities,
-    # otherwise it is a KYC bypass back door for every user on the platform.
-    bootstrap_approve_identity_ids: str = ""
-    # When true, publishing a skill additionally requires a verified developer
-    # real-name profile whose agreement wallet is the one signing the listing.
-    skill_require_developer_verification: bool = True
-    # ------------------------------------------------------------------
-    # 第三方实名 / 活体服务（可选）
-    # ------------------------------------------------------------------
-    # none | mock | aliyun | tencent | persona。默认 none：不接任何服务商，主身份认证走
-    # 「本人提交密文包 + 复核台人工核验」。填了名字但密钥没配齐时，接口会**明确报缺哪一项**，
-    # 绝不静默降级成「已核验」。Karma 永远不经手证件 / 人脸明文：浏览器直连服务商，
-    # 我们只收结论与会话号。生产环境禁止 mock。
-    identity_provider: str = "none"
-    # 服务商能访问到的公网地址（用来拼回调 URL）；不填就没法接回调。
-    identity_provider_public_base_url: str = ""
-    # 回调签名密钥：mock / 自建回调用它；Persona 用它自己的 webhook secret。
-    identity_provider_callback_secret: str = ""
-    # 回调时间戳的容忍窗口（秒）：挡重放。
-    identity_provider_callback_tolerance_seconds: int = 300
-    # ---- 操作台 · 刷脸即激活 / 追加身份同人比对（2026-09-23）------------------
-    # 主身份「刷脸一次即激活」：活体 + 多角度采集在浏览器本地完成，脸型模板用钱包签名
-    # 派生的密钥加密后才上传（Karma 只拿密文 + 摘要）。服务端按这里的尺子判定：
-    # FACE_ACTIVATION_MIN_ANGLES = 至少几个角度才算「活体采集」。
-    # 关掉这个开关，主身份就退回「本人提交密文包 + 复核台人工核验」。
-    face_activation_enabled: bool = True
-    face_activation_min_angles: int = 3
-    # 追加身份（第二张卡）的一致性尺子：本机拿首次采集的模板与这一次现采的脸比一次，
-    # 分数过线才自动开通。**判严不判宽**：宁可让人重采一次，也不放过一张别人的脸。
-    # 接了服务商之后，这条路会换成服务商的 1:1 比对（分数同样是服务商给的）。
-    face_consistency_min_score: float = 0.35
-    # ---- 操作台 · 授权 / 取消授权的第二把锁（TOTP，2026-09-23）--------------
-    # 身份绑了 2FA 之后，动额度（授权 / 减额 / 取消授权）与摘掉 agent 公钥都必须带上
-    # 一次有效验证码 —— 光偷到钥匙（会话或密钥）也动不了钱。
-    # 下面这个开关置 true 时，**没绑 2FA 的身份连授权都做不了**（先绑再授权）；
-    # 默认 false：没绑的身份照旧只有钱包签名这道锁，操作台会一直提示去绑定。
-    console_2fa_required_for_funds: bool = False
-    console_2fa_issuer: str = "Karma Network"
-    # 连续验证失败几次锁一次、锁多久（秒）。
-    console_2fa_max_failures: int = 5
-    console_2fa_lock_seconds: int = 300
-    # 阿里云实人认证（Cloud Auth）
-    identity_provider_aliyun_access_key_id: str = ""
-    identity_provider_aliyun_access_key_secret: str = ""
-    identity_provider_aliyun_scene_id: str = ""
-    identity_provider_aliyun_endpoint: str = "cloudauth.aliyuncs.com"
-    identity_provider_aliyun_region: str = "cn-hangzhou"
-    # 腾讯云慧眼（人脸核身）
-    identity_provider_tencent_secret_id: str = ""
-    identity_provider_tencent_secret_key: str = ""
-    identity_provider_tencent_rule_id: str = ""
-    identity_provider_tencent_region: str = "ap-guangzhou"
-    # Persona（海外：跨境电商用户走它）
-    identity_provider_persona_api_key: str = ""
-    identity_provider_persona_template_id: str = ""
-    identity_provider_persona_webhook_secret: str = ""
     debug: bool = False
 
     # Comma-separated browser origins for CORS, e.g. "https://app.example.com,https://console.example.com".
     # Empty in non-development environments defaults to no cross-origin allowance until configured.
     cors_allow_origins: str = ""
 
-    # WalletConnect projectId (public, non-secret) for Browser DApp connections (env: WC_PROJECT_ID)
+    # WalletConnect projectId (public, non-secret) for Browser DApp connections
     # (Telegram MiniApp + Console Bitpie). Create at https://cloud.walletconnect.com.
     wc_project_id: str = ""
 
@@ -250,10 +48,6 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     # When true, Redis errors in rate limiting return 503 instead of failing open (DDoS risk if Redis is down).
     rate_limit_redis_fail_closed: bool = False
-    # Comma-separated CIDRs treated as reverse proxies. Forwarded headers
-    # (X-Real-IP / X-Forwarded-For) are only believed when the socket peer is in
-    # this list, so a caller cannot pick its own rate-limit bucket.
-    rate_limit_trusted_proxy_cidrs: str = "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 
     # MinIO
     minio_endpoint: str = "localhost:9000"
@@ -296,9 +90,6 @@ class Settings(BaseSettings):
     evidence_bundle_max_receipt_entries: int = 2048
     evidence_bundle_max_json_bytes: int = 5 * 1024 * 1024
     verify_max_combined_json_bytes: int = 5 * 1024 * 1024
-    # P1-7：合同 / 结算流转这类交易明细默认只对当事人（买/卖）与平台运维岗开放。
-    # 想让任何人都能公开审计交易明细（产品决策），把它设成 true 即可，不需要改代码。
-    task_records_public_read: bool = False
     receipt_require_signature: bool = True
     receipt_max_future_skew_seconds: int = 300
     receipt_max_past_hours: int = 24 * 7
@@ -310,10 +101,6 @@ class Settings(BaseSettings):
     settlement_require_party_actor: bool = True
     # When true, POST /v1/settlement/{task_id}/lock is only allowed from PENDING (not directly from DRAFT).
     settlement_lock_requires_pending: bool = False
-    # 交付后买方的确认窗口（小时）。交付（→ DELIVERED）时把它写进结算单并算出
-    # confirm_deadline_at；窗口到期后 POST /v1/settlement/{task_id}/auto-confirm 才能
-    # 兜底放款。置 0 = 关闭自动兜底（每一单都必须有人显式验收）。
-    settlement_confirm_window_hours: int = 72
     # KSA2-006: require ≥1 successful execution receipt before any seller-side monetary release
     # (partial / regret / auto-arbitrate / buyer-accept), except pure refunds (settled_amount≈0).
     settlement_requires_success_execution_receipt_for_seller_release: bool = True
@@ -322,36 +109,9 @@ class Settings(BaseSettings):
     # When true with AUTH_ENFORCE_PROTECTED_ROUTES, capacity lock/release and voucher create/verify/accept
     # bind the authenticated actor to the ledger identity or asserted voucher party (buyer/seller).
     ledger_require_party_actor: bool = True
-    # When true with AUTH_ENFORCE_PROTECTED_ROUTES, identity profile / sub-identity /
-    # identity-card credential + class writes, and capacity reads, bind the authenticated
-    # actor to the target identity (or the platform ops allowlist). See
-    # services/identity_owner_access.py.
-    identity_require_owner_binding: bool = True
     # P1 — bind typed execution receipt extensions to voucher.task_type when a settlement links a voucher.
     receipt_template_voucher_binding: bool = True
     progress_require_signature: bool = True
-    # ── Wallet registration gate ────────────────────────────────────────────
-    # One wallet = one identity is enforced in services/identity_gateway/store.py
-    # (`_BY_WALLET` index + create_sub_identity rejection).
-    # These settings add the *funding* half of the rule: a wallet that holds no
-    # funds may still register (onboarding must not dead-end), but it is throttled
-    # on a dimension the caller cannot forge, so a script cannot mint identities
-    # from a pile of freshly generated empty wallets.
-    registration_require_funding: bool = True
-    # "Has funds" = native balance >= threshold OR settlement-token balance >= threshold.
-    # A threshold of 1 means "any nonzero balance".
-    registration_min_native_wei: int = 1
-    registration_min_token_units: int = 1
-    # Zero-funding registrations allowed per real client IP / per window.
-    registration_zero_funding_max_per_ip: int = 3
-    # Zero-funding registrations allowed platform-wide / per window (funded wallets
-    # are never counted against this, so a real user with funds is never blocked).
-    # Kept well above the per-IP budget: this bucket exists to blunt a scripted
-    # flood, not to cap growth — too low and a handful of empty wallets would
-    # lock onboarding for every honest new user for a whole window.
-    registration_zero_funding_max_global: int = 200
-    registration_zero_funding_window_seconds: int = 3600
-    registration_funding_rpc_timeout_seconds: int = 5
     # None = use openclaw_local_phase1_auto_relax + trade_launch_require_eip712 rule
     openclaw_relax_delivery_signatures: bool | None = None
     # Local OpenClaw Phase 1 template sets this true (never production)
@@ -395,12 +155,9 @@ class Settings(BaseSettings):
     #   hybrid   — off-chain receipts/verification, on-chain payment + hash
     settlement_mode: str = "offchain"
 
-    # Default seller penalty stake (bps) when locking on-chain at acceptance.
-    # Rule: the seller stakes 30% of the order value on every accepted order
-    # (cumulative — each accepted order locks its own bill), and may lock more at
-    # any time to raise its own credibility. The stake is locked automatically on
-    # acceptance so sellers never have to post margin by hand.
-    settlement_default_penalty_bps: int = 3000
+    # Default seller penalty stake (bps) when locking on-chain at acceptance
+    # (seller locks escrow_amount * penalty_bps / 10000 as collateral).
+    settlement_default_penalty_bps: int = 1000
 
     # Token decimals for on-chain settlement (USDC = 6). Off-chain escrow is in
     # USD float; the on-chain boundary converts USD -> wei via 10**decimals.
@@ -432,72 +189,6 @@ class Settings(BaseSettings):
     # ERC-20 token for settlement
     erc20_token_address: str = ""
 
-    # Block explorer used by the Console to link a lock/withdraw transaction.
-    chain_explorer_url: str = "https://sepolia.etherscan.io"
-
-    # Console deposits: when true (and the two addresses + RPC above are set),
-    # 「增加锁仓额度」 asks the user's wallet to sign approve + lock on-chain and
-    # the ledger is credited from the receipt. Deliberately independent of
-    # SETTLEMENT_MODE so turning on real deposits cannot change how orders settle.
-    chain_wallet_lock_enabled: bool = False
-
-    # ------------------------------------------------------------------
-    # v2 non-custodial allowance escrow (KarmaAllowanceEscrow)
-    # ------------------------------------------------------------------
-    # The user keeps the USDC in their own wallet and grants the escrow a
-    # one-time ERC-20 allowance; the Bill is then a *responsibility record*
-    # ("this wallet has committed up to X"), not a deposit. Settlement pulls
-    # payer -> payee directly, so the console never asks for a private key and
-    # the user never signs again per order. Turning this on is independent of
-    # SETTLEMENT_MODE, exactly like CHAIN_WALLET_LOCK_ENABLED.
-    chain_allowance_escrow_enabled: bool = False
-    allowance_escrow_address: str = ""
-
-    # Karma's own operational account. It may bind/submit on behalf of a wallet
-    # that named it as `operator`, but it can never move funds: only the payer's
-    # own allowance gates a pull, and the payer can revoke at any time. Unset
-    # means "no server-side signing" and the agent drives the calls itself.
-    settlement_operator_address: str = ""
-    settlement_operator_private_key: str = ""
-
-    # Ceiling (gwei) Karma's own settlement account will ever pay for gas. A wild
-    # fee spike must never make an automatic settlement uneconomic or drain the
-    # operator account; 0 disables the cap.
-    settlement_max_gas_price_gwei: float = 5.0
-
-    # Challenge window (seconds) the console advertises for new commitments.
-    allowance_escrow_dispute_window: int = 120
-
-    # Automatic settlement: verify, then the money moves, without anybody
-    # pressing a button. On-chain the pull is permissionless once the challenge
-    # window has elapsed, so the only missing piece is a caller. With this on,
-    # the API process walks the due bindings and executes them itself using the
-    # operator key above (no user token, no user key). Off is the safe default
-    # for any process that must never move money on its own.
-    escrow_autosettle_enabled: bool = False
-    escrow_autosettle_interval_seconds: int = 15
-    escrow_autosettle_batch: int = 5
-    # 台账自愈（把 v2 承诺对回链上的可用责任额度）单独走一个更慢的节拍，不跟
-    # 15 秒的主 tick 同频：它每身份要读一次链上 ERC-20 授权额（实测 0.5~1s），
-    # 7 个身份时一轮就是 3.4~7.1s，而主 tick 只隔 15 秒 —— 身份数一多，循环整轮
-    # 就被这一段吃掉，越跑越追不上。自愈只是**兜底**：正常交易在请求路径上
-    # （commit / revoke / 结算放款）已经各自对过一次账。
-    # <= 0 退回旧行为：每一轮 tick 都跑。
-    escrow_autosettle_mirror_interval_seconds: int = 60
-    # 台账自愈（``reconcile_from_chain``）对**同一条**绑定最多每这么久回链问一次。
-    # 它每一轮只取 ``escrow_autosettle_batch`` 条（默认 5），条数一多就会「窗口饥饿」：
-    # 按 created_at 排的话，第 6 条起永远轮不到（2026-10-14 线上实测：65 条 active，
-    # 每轮只看最老的 5 条）。加上这一格之后取数改成「最久没问过的先问」，一轮一轮
-    # 把全部绑定盖到；这一格只是防止同一条被反复问、把一轮 tick 拖长。
-    # <= 0 退回旧行为：每一轮都可以问同一条（不推荐，几十条绑定会把 tick 拖垮）。
-    escrow_reconcile_probe_interval_seconds: int = 300
-    # 孤儿绑定的自动收尾（按 binding，不按 task）。一个 task 有多条绑定时，收尾动作
-    # （cancel/submit/slash_for_task）只会碰最新那条，老的那条链上还占着买方的授权额，
-    # 谁也解不开（2026-10-14 线上实测：92 / 161 / 171）。打开后 ``reap_stranded`` 才会
-    # 对这些绑定发链上 cancelBinding。
-    # **默认关**：它会在链上发一笔交易、花 operator 的 gas，先在测试网演练再在 prod 打开。
-    escrow_orphan_binding_cancel_enabled: bool = False
-
     # Payee (worker agent wallet on-chain)
     payee_address: str = ""
 
@@ -506,11 +197,6 @@ class Settings(BaseSettings):
 
     # Quote TTL in seconds
     settlement_ttl_seconds: int = 3600
-
-    # 过期授权码的额度回收：有效期一到就把被冻住的额度退回「可用」。
-    # 关掉它等于「被接受的授权码永远冻着买方的额度」，只适合做故障演练。
-    voucher_expiry_sweep_enabled: bool = True
-    voucher_expiry_sweep_batch: int = 200
 
     # P0 — Authorization Voucher EIP-712 (buyer commitment)
     # When true, POST /v1/vouchers requires buyer_wallet_address and a valid ECDSA
@@ -537,12 +223,6 @@ class Settings(BaseSettings):
     x402_default_max_budget_usdc: float = 10.0
     x402_hard_max_budget_usdc: float = 100.0
     x402_allow_private_hosts: bool = True
-    # Dedicated hot wallet for outbound x402 payments (one key per service
-    # agent). Deliberately NOT falling back to SETTLEMENT_OPERATOR_PRIVATE_KEY:
-    # escrow settlement signs through allowance_escrow._broadcast_tx, whose
-    # nonce comes from an in-process cache, so a second sender on the same
-    # wallet can be handed the same nonce and replace a settlement.
-    x402_private_key: str = ""
 
     # OpenClaw — optional outbound handoff webhooks (HMAC) + in-process event ring for polling
     openclaw_webhook_url: str = ""
@@ -569,11 +249,6 @@ class Settings(BaseSettings):
     runtime_require_wallet_identity_binding: bool = False
     runtime_auto_bind_wallet_on_create_key: bool = True
 
-    # Runtime Key 必须绑到某个 agent：铸的时候要指名，用的时候要过匹配码激活。
-    # 打开之后不存在「不记名钥匙」—— 光拿到 KRM_RT_… 什么都做不了：
-    # 服务端只认「agent 公钥 + 逐请求签名」，而公钥要主人在操作台输码才绑得上。
-    runtime_require_agent_binding: bool = True
-
     @model_validator(mode="after")
     def _reject_default_secrets_in_production(self) -> "Settings":
         """Reject unsafe defaults in any non-development environment (production, testnet, staging)."""
@@ -585,17 +260,6 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "APP_SECRET_KEY must be set to a strong value when APP_ENV is production",
                 )
-            if (self.app_secret_key_previous or "").strip():
-                if (self.app_secret_key_previous or "").strip() == key:
-                    raise ValueError(
-                        "APP_SECRET_KEY_PREVIOUS must differ from APP_SECRET_KEY "
-                        "(rotation needs two distinct signing keys)",
-                    )
-                if self._previous_secret_deadline() is None:
-                    raise ValueError(
-                        "APP_SECRET_KEY_PREVIOUS_UNTIL must be a valid ISO8601 UTC datetime "
-                        "when APP_SECRET_KEY_PREVIOUS is set",
-                    )
             if not self.auth_enforce_protected_routes:
                 raise ValueError(
                     "AUTH_ENFORCE_PROTECTED_ROUTES must be true when APP_ENV is production",
@@ -628,83 +292,15 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING must be true when APP_ENV is production",
                 )
-            if not self.runtime_require_agent_binding:
-                raise ValueError(
-                    "RUNTIME_REQUIRE_AGENT_BINDING must be true when APP_ENV is production "
-                    "(otherwise a stolen KRM_RT_… is immediately spendable — no matching code needed)",
-                )
             if not self.runtime_daily_spend_persist:
                 raise ValueError(
                     "RUNTIME_DAILY_SPEND_PERSIST must be true when APP_ENV is production",
-                )
-            if not self.registration_require_funding:
-                raise ValueError(
-                    "REGISTRATION_REQUIRE_FUNDING must be true when APP_ENV is production",
-                )
-            if not self.arbitration_require_actor_binding:
-                raise ValueError(
-                    "ARBITRATION_REQUIRE_ACTOR_BINDING must be true when APP_ENV is production "
-                    "(otherwise any logged-in identity can vote on someone else's dispute)",
-                )
-            if not self.verifier_require_node_signature:
-                raise ValueError(
-                    "VERIFIER_REQUIRE_NODE_SIGNATURE must be true when APP_ENV is production "
-                    "(otherwise any logged-in account can register a node, change its stake or "
-                    "attest on its behalf)",
-                )
-            if not self.verifier_require_owner_identity:
-                raise ValueError(
-                    "VERIFIER_REQUIRE_OWNER_IDENTITY must be true when APP_ENV is production "
-                    "(otherwise anyone can mint anonymous nodes whose bond is tied to nobody)",
-                )
-            if not self.verifier_require_backed_bond:
-                raise ValueError(
-                    "VERIFIER_REQUIRE_BACKED_BOND must be true when APP_ENV is production "
-                    "(a stake that is not backed by locked USDC is not a collateral)",
-                )
-            try:
-                _split = int(self.verifier_slash_victim_share_bps) + int(self.verifier_slash_pool_share_bps)
-            except (TypeError, ValueError):
-                _split = -1
-            if _split != 10_000:
-                raise ValueError(
-                    "VERIFIER_SLASH_VICTIM_SHARE_BPS + VERIFIER_SLASH_POOL_SHARE_BPS must equal 10000 "
-                    "(the slash split must add up to exactly 100%)",
                 )
             if not (self.arbitrator_actor_ids or "").strip():
                 raise ValueError(
                     "ARBITRATOR_ACTOR_IDS must list at least one dispute arbitrator when "
                     "APP_ENV is production (dispute resolution cannot be open to any session)",
                 )
-            try:
-                _coverage = float(self.arbitration_stake_coverage_multiple)
-            except (TypeError, ValueError):
-                _coverage = 0.0
-            if _coverage < 1.0:
-                raise ValueError(
-                    "ARBITRATION_STAKE_COVERAGE_MULTIPLE must be >= 1.0 when APP_ENV is production "
-                    "(an arbitrator must never decide a dispute worth more than their collateral)",
-                )
-            if not self.arbitration_require_backed_stake:
-                raise ValueError(
-                    "ARBITRATION_REQUIRE_BACKED_STAKE must be true when APP_ENV is production "
-                    "(a stake that is not backed by locked USDC is not a collateral)",
-                )
-            if self.governance_open_join:
-                try:
-                    _gov_floor = float(self.governance_min_stake_amount)
-                except (TypeError, ValueError):
-                    _gov_floor = 0.0
-                if _gov_floor <= 0:
-                    raise ValueError(
-                        "GOVERNANCE_MIN_STAKE_AMOUNT must be > 0 when GOVERNANCE_OPEN_JOIN is on "
-                        "and APP_ENV is production (a zero-stake open door makes every identity a reviewer)"
-                    )
-                if not self.governance_require_backed_stake:
-                    raise ValueError(
-                        "GOVERNANCE_REQUIRE_BACKED_STAKE must be true when GOVERNANCE_OPEN_JOIN is on "
-                        "and APP_ENV is production (a stake that is not backed by locked USDC is not collateral)"
-                    )
             if self.chain_allow_hot_wallet_payer:
                 raise ValueError(
                     "CHAIN_ALLOW_HOT_WALLET_PAYER must be false when APP_ENV is production "
@@ -722,12 +318,6 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "SETTLEMENT_REQUIRE_PARTY_ACTOR must be true when APP_ENV is production",
                 )
-            if not self.identity_require_owner_binding:
-                raise ValueError(
-                    "IDENTITY_REQUIRE_OWNER_BINDING must be true when APP_ENV is production "
-                    "(otherwise any logged-in identity can rewrite another identity's profile, "
-                    "credentials, class or automation policy)",
-                )
             if self.openclaw_relax_delivery_signatures is True:
                 raise ValueError(
                     "OPENCLAW_RELAX_DELIVERY_SIGNATURES must be false or unset when APP_ENV is production",
@@ -736,32 +326,9 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "OPENCLAW_LOCAL_PHASE1_AUTO_RELAX must be false when APP_ENV is production",
                 )
-            if (self.identity_provider or "").strip().lower() == "mock":
-                raise ValueError(
-                    "IDENTITY_PROVIDER=mock is not allowed when APP_ENV is production "
-                    "(the mock provider has no real identity check behind it)",
-                )
-            x402_backend = (self.x402_payment_backend or "mock").strip().lower()
-            if x402_backend == "mock":
+            if (self.x402_payment_backend or "").strip().lower() == "mock":
                 raise ValueError(
                     "X402_PAYMENT_BACKEND=mock is not allowed when APP_ENV is production",
-                )
-            if x402_backend in ("env", "sepolia"):
-                x402_key = (
-                    (self.x402_private_key or "").strip()
-                    or (self.karma_signing_dev_private_key or "").strip()
-                    or (self.testnet_private_key or "").strip()
-                )
-                if not x402_key:
-                    raise ValueError(
-                        "X402_PAYMENT_BACKEND=%s needs X402_PRIVATE_KEY when APP_ENV is "
-                        "production (the settlement operator key is deliberately not a "
-                        "fallback: two senders on one wallet collide nonces)" % x402_backend,
-                    )
-            if self.x402_allow_private_hosts:
-                raise ValueError(
-                    "X402_ALLOW_PRIVATE_HOSTS must be false when APP_ENV is production "
-                    "(the agent-facing fetch must not reach private/loopback addresses)",
                 )
             if not self.trade_launch_require_eip712:
                 raise ValueError(
@@ -784,23 +351,6 @@ class Settings(BaseSettings):
                     "MINIO_SECRET_KEY must be set to a non-default value in this environment",
                 )
         return self
-
-    def _previous_secret_deadline(self) -> datetime | None:
-        """解析上一把签发钥的过渡期硬截止（ISO8601 UTC）。解析失败返回 None。"""
-        return _parse_iso_utc(self.app_secret_key_previous_until)
-
-    def secret_rotation_active(self, now: datetime | None = None) -> bool:
-        """过渡期是否生效：上一把 key 非空，且硬截止时间还没到。"""
-        if not (self.app_secret_key_previous or "").strip():
-            return False
-        deadline = self._previous_secret_deadline()
-        if deadline is None:
-            return False
-        if now is None:
-            now = datetime.now(timezone.utc)
-        if now.tzinfo is None:
-            now = now.replace(tzinfo=timezone.utc)
-        return now < deadline
 
     def cors_allow_origins_list(self) -> list[str]:
         raw = (self.cors_allow_origins or "").strip()
@@ -849,51 +399,8 @@ class Settings(BaseSettings):
         # Development convenience: fall back to admin allowlist when unset.
         return self.admin_actor_id_set()
 
-    def governance_verifier_id_set(self) -> set[str]:
-        """谁能给自己开 verifier / arbitrator 档案：运维白名单，默认无人。"""
-        raw = (self.governance_verifier_ids or "").strip()
-        if not raw:
-            return set()
-        return {item.strip() for item in raw.split(",") if item.strip()}
 
-    # ---- 出站邮件（配对「邮箱回执」第三把锁）--------------------------------
-    # 留空 = 没有出口：配对邮箱回执这一步会 fail-closed 拒绝，绝不静默跳过。
-    # QQ/163 邮箱要用「授权码」而不是登录密码；发件人和用户名一般填同一个。
-    karma_mail_host: str = ""
-    karma_mail_port: int = 465
-    karma_mail_user: str = ""
-    karma_mail_password: str = ""
-    karma_mail_from: str = ""
-    # 465 一般用 SSL；587 一般用 STARTTLS。两个都为 false 就是明文 SMTP（仅限本机调试）。
-    karma_mail_ssl: bool = True
-    karma_mail_starttls: bool = False
-    karma_mail_timeout_seconds: int = 15
-    # 配对确认链接里用的对外地址；留空回落 PUBLIC_BASE_URL / 默认域名。
-    karma_mail_confirm_base_url: str = ""
-
-    # ---- 出境邮件中继（可选）-----------------------------------------------
-    # 大陆机器到 Gmail 这类出境 SMTP 时通时断，而这里是 fail-closed 的：连不上就
-    # 503，主人反而开不了「邮箱回执」这把锁。设了 relay_url + relay_token 就把
-    # 「必须连外网 SMTP」这件事交给一台境外小服务（scripts/ops/mail_gateway.py），
-    # 本服务只用 HTTPS(443) 把邮件投过去 —— 443 对大陆机器永远通。
-    # 两个都配齐才算开了中继；只配一个一律按「没配」处理，回落直连 SMTP。
-    # token 是这条链的唯一钥匙：中继端 KARMA_GATEWAY_TOKEN 必须与它逐字节相同。
-    karma_mail_relay_url: str = ""
-    karma_mail_relay_token: str = ""
-
-    def bootstrap_approve_identity_id_set(self) -> set[str]:
-        """自举审批只对哪些身份开放（平台自有的那一个）：默认**谁都不给**。
-
-        这条通道签的是 platform:bootstrap，一旦放开就等于绕开实名核验，
-        所以默认必须是空的；要用必须显式在服务器 .env 里点名。
-        """
-        raw = (self.bootstrap_approve_identity_ids or "").strip()
-        if not raw:
-            return set()
-        return {item.strip() for item in raw.split(",") if item.strip()}
-
-
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()
 

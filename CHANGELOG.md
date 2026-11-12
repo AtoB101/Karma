@@ -8,7 +8,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
-- MCP 三个包首发到 PyPI：`karma-mcp-server` 0.1.0、`karma-openclaw` 0.4.0、`karma-connect` 1.0.0。推 tag `karma-<pkg>-v<version>` 即由 `.github/workflows/mcp-release.yml` 构建 + `twine check` + 握手 + 建 GitHub Release +（有 `PYPI_API_TOKEN` 时）上传 PyPI；`serverInfo.version` 也从 mcp SDK 版本改成本包版本。
 - Reputation pack-to-chain: `KarmaReputationAnchor` (non-transferable score + dividend weight, no fee waiver); 90-day rehab after slash; admin `GET/POST /v1/reputation/{id}/pack*` and `POST .../slash`.
 - Wash / fake-volume heuristics: self-deal, same wallet, dust, A↔B ping-pong, pair velocity, burst — no reputation credit; `wash_trade_flags` blocks pack until rehab.
 - Identity card opens the same reputation ledger (user/merchant/enterprise); card payload includes `reputation`; buyers and sellers both accrue on genuine settles.
@@ -41,10 +40,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - On-chain Emergency Freeze wired into `KarmaBilateral` (global/agent/bill/binding + `CircuitBreaker`), INV-1..10 forge tests, off-chain compromise matrix, Control Plane freeze API, funds-security console view, proof report `docs/FINANCIAL_SECURITY_PROOF.md`.
 - Documented 2026-05-17 stress/attack (3,143 tests) and testnet pre-auth (353 tests) results in `docs/public-testing/`.
-
-### Fixed
-
-- Agent 公钥 base64 以 `0x`/`0X` 开头时被误当 hex 前缀剥掉（约 1/2000 把随机钥匙），导致合法公钥被判非法、指纹算成空串。修 `services/runtime_key_service.py::normalize_agent_public_key` 与 `packages/karma-mcp-server` 的 `canonical_public_key_b64`；`karma-mcp-server` 发 0.1.1。
 
 ## [2026-05-18] — Phase 1 Open Wallet + OpenClaw local (on `main` @ `81d20b0`)
 

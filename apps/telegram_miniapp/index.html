@@ -278,17 +278,24 @@
     }
 
     // ── 测试钱包一键登录（本地 SIWE 签名，仅实测用；上线前移除本段与 TEST_WALLETS 面板）──
-    // 私钥不再硬编码：由构建/部署环境注入（SEPOLIA_BUYER_KEY / SEPOLIA_AGENT_KEY / SEPOLIA_ADMIN_KEY）
+    // 私钥不再硬编码；仅本地测试时通过 window.KARMA_TEST_WALLET_KEYS = { W1: '0x...', ... } 注入。
     const TEST_WALLETS = {
       W1: { label: '买方',  address: '0x3295c96a2993C366B3dB27B6ac81f85801D75f51', key: '' },
       W2: { label: '卖方',  address: '0x16fE563a56E6566809597e4aF9a1608d3e55Dd7F', key: '' },
       W3: { label: '仲裁',  address: '0x7Ed437E5786AB0d217D52937da4fF4790998d94C', key: '' },
     };
+    (() => {
+      const injected = window.KARMA_TEST_WALLET_KEYS || {};
+      for (const tag of Object.keys(TEST_WALLETS)) {
+        if (injected[tag]) TEST_WALLETS[tag].key = injected[tag];
+      }
+    })();
 
     async function loginTestWallet(tag) {
       const log = document.getElementById('testWalletView');
       const w = TEST_WALLETS[tag];
       try {
+        if (!w.key) throw new Error('测试钱包私钥未配置：请通过 window.KARMA_TEST_WALLET_KEYS 注入');
         if (!window.ethers) throw new Error('ethers 未加载（检查 CDN 可达性）');
         log.textContent = '正在获取 SIWE challenge…';
         const ch = await api('/v1/auth/siwe/challenge', { method: 'POST', body: JSON.stringify({ address: w.address }) });

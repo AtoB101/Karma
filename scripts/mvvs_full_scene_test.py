@@ -51,7 +51,7 @@ WALLETS = {
     },
 }
 
-RPC_URL = os.environ.get("SEPOLIA_RPC", "")
+RPC_URL = os.environ.get("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
 API_BASE = "http://127.0.0.1:8000/v1"
 CHAIN_ID = 11155111
 

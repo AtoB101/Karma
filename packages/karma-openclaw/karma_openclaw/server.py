@@ -8,7 +8,6 @@ from urllib.parse import quote
 
 from mcp.server.fastmcp import FastMCP
 
-from karma_openclaw import __version__ as _PKG_VERSION
 from karma_openclaw.bilateral_tools import register_bilateral_tools
 from karma_openclaw.guard import (
     buyer_confirm_allowed,
@@ -25,25 +24,10 @@ from karma_openclaw.helpers import (
     stable_sha256_hex,
     voucher_eip712_operator_notes,
 )
-from karma_openclaw.http_client import api_get, api_post, runtime_key, runtime_post
+from karma_openclaw.http_client import api_get, api_post
 from karma_openclaw.p0_tools import register_p0_tools
-from karma_openclaw.pairing_tools import register_pairing_tools
 from karma_openclaw.phase1_tools import register_phase1_tools
 from karma_openclaw.phase2_tools import register_phase2_tools
-from karma_openclaw.runtime_tools import register_runtime_tools
-
-
-def _apply_package_version(mcp: FastMCP, version: str) -> None:
-    """把 MCP 握手里的 ``serverInfo.version`` 钉成本包版本。
-
-    mcp SDK 1.x 的 ``FastMCP`` 不把版本号转给底层 ``MCPServer``，后者会回落成
-    ``importlib.metadata.version("mcp")`` —— 客户端在握手时就只看到 SDK 的版本号
-    （例如 1.29.1），而不是本包版本，排障时这一点会把人带偏。这里显式覆盖。
-    SDK 若改了内部结构，``tests/test_openclaw_server_identity.py`` 的握手断言会立刻变红。
-    """
-    server = getattr(mcp, "_mcp_server", None)
-    if server is not None and not getattr(server, "version", None):
-        server.version = version
 
 
 def build_app() -> FastMCP:
@@ -51,21 +35,11 @@ def build_app() -> FastMCP:
         "karma-openclaw",
         instructions=(
             "Karma Trust Protocol — OpenClaw MCP (P0+P1). "
-            "No credentials yet? Call karma_connect and hand the user_code to your "
-            "owner; once they approve in the Console, call karma_connect_claim() — approval "
-            "is the delivery, so nothing has to travel back to you (only if the owner "
-            "additionally issues a handoff code do you pass handoff_code). Credentials are "
-            "written to ~/.karma/agent.env (0600) and never echoed into the chat. "
-            "KARMA_RUNTIME_URL + KARMA_API_KEY; KARMA_RUNTIME_KEY (+ "
-            "KARMA_AGENT_PRIVATE_KEY / KARMA_AGENT_ID) for /runtime/*. "
-            "A Runtime Key names one agent and only works after the owner enters the "
-            "8-character matching code in Karma Console — call karma_runtime_bind_key "
-            "first, hand the code to the owner, then karma_runtime_await_activation. "
+            "KARMA_RUNTIME_URL + KARMA_API_KEY; optional KARMA_RUNTIME_KEY for /runtime/*. "
             "Voucher create/accept and Runtime Key mint are MANUAL in Karma Console. "
             "Mutating tools require handoff v1 (handoff_json or KARMA_OPENCLAW_HANDOFF_PATH)."
         ),
     )
-    _apply_package_version(mcp, _PKG_VERSION)
 
     # --- Capacity + bundles ---
 
@@ -95,18 +69,8 @@ def build_app() -> FastMCP:
 
     @mcp.tool()
     async def karma_submit_evidence_bundle(bundle_json: str) -> dict[str, Any]:
-        """提交证据包。
-
-        2026-09-17：``/v1/bundles`` 起要求 ``agent_signature`` 必填且**必须验得通**，
-        而 agent 手里只有 Runtime Key、没有平台签名私钥。所以配了
-        ``KARMA_RUNTIME_KEY`` 时走网关代签（``/runtime/submit-bundle``，网关确认
-        调用者确实是该任务的买方/卖方后才盖章）；没有 Runtime Key 时才直连
-        （仅本地开发可用的口径）。
-        """
-        payload = json.loads(bundle_json)
-        if runtime_key():
-            return await runtime_post("/runtime/submit-bundle", payload)
-        return await api_post("/v1/bundles", payload)
+        """POST /v1/bundles"""
+        return await api_post("/v1/bundles", json.loads(bundle_json))
 
     # --- Manual auth guidance ---
 
@@ -261,12 +225,10 @@ def build_app() -> FastMCP:
             extension=ext,
         )
 
-    register_pairing_tools(mcp)
     register_p0_tools(mcp)
     register_phase1_tools(mcp)
     register_phase2_tools(mcp)
     register_bilateral_tools(mcp)
-    register_runtime_tools(mcp)
     return mcp
 
 

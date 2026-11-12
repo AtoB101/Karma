@@ -3,9 +3,6 @@ Karma API — Security Operations Routes
 """
 from __future__ import annotations
 
-from datetime import datetime
-
-import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +21,6 @@ from core.schemas import (
     SecurityThresholdPolicyStatus,
 )
 from db.session import get_db
-from services.actor_guards import require_admin_actor
 from services.security_monitoring import build_security_ops_alert_report
 from services.security_policy_center import (
     create_security_threshold_policy,
@@ -45,33 +41,10 @@ from services.security_policy_center import (
 from services.runtime_safety import (
     audit_capacity_anchor_and_maybe_trip,
     get_runtime_safety_mode_state,
-    set_runtime_safety_mode_persisted,
+    set_runtime_safety_mode,
 )
 
 router = APIRouter()
-
-logger = structlog.get_logger(__name__)
-
-
-def _newest_state_machine_denial_at(report: SecurityOpsAlertReport) -> datetime | None:
-    # 这批证据里最新的一次「状态机拒绝」发生在什么时候。
-    #
-    # 自动刹车要拿它和 ``manual_override_at`` 比：人工清闸之后，只有**更晚发生的**
-    # 拒绝才允许再把闸自动拉回去。没有这个时间戳就没法判断，宁可当成「判不了」。
-    newest: datetime | None = None
-    for alert in report.alerts:
-        if alert.alert_type != SecurityOpsAlertType.SETTLEMENT_TRANSITION_DENIED_RATE:
-            continue
-        raw = alert.metadata.get("latest_denied_at")
-        if not raw:
-            continue
-        try:
-            parsed = datetime.fromisoformat(str(raw))
-        except ValueError:
-            continue
-        if newest is None or parsed > newest:
-            newest = parsed
-    return newest
 
 
 class CreateSecurityThresholdPolicyRequest(BaseModel):
@@ -116,7 +89,6 @@ class UpdateRuntimeSafetyModeRequest(BaseModel):
 @router.post("/policies", response_model=SecurityThresholdPolicy, status_code=201)
 async def create_security_policy(
     body: CreateSecurityThresholdPolicyRequest,
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
     return await create_security_threshold_policy(
@@ -133,38 +105,14 @@ async def create_security_policy(
 async def list_security_policies(
     status: SecurityThresholdPolicyStatus | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> list[SecurityThresholdPolicy]:
     return await list_security_threshold_policies(db=db, status=status, limit=limit)
 
 
-@router.get("/policies/changes", response_model=list[SecurityPolicyChangeRequest])
-async def list_security_policy_changes(
-    status: SecurityPolicyChangeStatus | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=500),
-    _: str = Depends(require_admin_actor),
-    db: AsyncSession = Depends(get_db),
-) -> list[SecurityPolicyChangeRequest]:
-    return await list_security_policy_change_requests(db=db, status=status, limit=limit)
-
-
-@router.get("/policies/changes/{request_id}", response_model=SecurityPolicyChangeRequest)
-async def get_security_policy_change(
-    request_id: str,
-    _: str = Depends(require_admin_actor),
-    db: AsyncSession = Depends(get_db),
-) -> SecurityPolicyChangeRequest:
-    try:
-        return await get_security_policy_change_request(db=db, request_id=request_id, include_approvals=True)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
 @router.get("/policies/{policy_id}", response_model=SecurityThresholdPolicy)
 async def get_security_policy(
     policy_id: str,
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
     policy = await get_security_threshold_policy(db=db, policy_id=policy_id)
@@ -177,7 +125,6 @@ async def get_security_policy(
 async def activate_security_policy(
     policy_id: str,
     emergency_override: bool = Query(default=False),
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
     if not emergency_override:
@@ -196,7 +143,6 @@ async def set_security_policy_candidate(
     policy_id: str,
     body: SetSecurityThresholdPolicyCandidateRequest,
     emergency_override: bool = Query(default=False),
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
     if not emergency_override:
@@ -218,7 +164,6 @@ async def set_security_policy_candidate(
 async def rollback_security_policy(
     body: RollbackSecurityThresholdPolicyRequest,
     emergency_override: bool = Query(default=False),
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityThresholdPolicy:
     if not emergency_override:
@@ -238,7 +183,6 @@ async def rollback_security_policy(
 @router.post("/policies/changes", response_model=SecurityPolicyChangeRequest, status_code=201)
 async def create_security_policy_change(
     body: CreateSecurityPolicyChangeRequest,
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityPolicyChangeRequest:
     try:
@@ -257,11 +201,30 @@ async def create_security_policy_change(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
+@router.get("/policies/changes", response_model=list[SecurityPolicyChangeRequest])
+async def list_security_policy_changes(
+    status: SecurityPolicyChangeStatus | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+) -> list[SecurityPolicyChangeRequest]:
+    return await list_security_policy_change_requests(db=db, status=status, limit=limit)
+
+
+@router.get("/policies/changes/{request_id}", response_model=SecurityPolicyChangeRequest)
+async def get_security_policy_change(
+    request_id: str,
+    db: AsyncSession = Depends(get_db),
+) -> SecurityPolicyChangeRequest:
+    try:
+        return await get_security_policy_change_request(db=db, request_id=request_id, include_approvals=True)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/policies/changes/{request_id}/review", response_model=SecurityPolicyChangeRequest)
 async def review_security_policy_change(
     request_id: str,
     body: ReviewSecurityPolicyChangeRequest,
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityPolicyChangeRequest:
     try:
@@ -279,7 +242,6 @@ async def review_security_policy_change(
 @router.post("/policies/changes/{request_id}/apply", response_model=SecurityPolicyChangeRequest)
 async def apply_security_policy_change(
     request_id: str,
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityPolicyChangeRequest:
     try:
@@ -292,7 +254,6 @@ async def apply_security_policy_change(
 @router.post("/policies/changes/dry-run", response_model=SecurityPolicyDryRunResult)
 async def dry_run_security_policy_change(
     body: CreateSecurityPolicyChangeRequest,
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityPolicyDryRunResult:
     try:
@@ -315,9 +276,7 @@ async def get_runtime_safety_mode() -> RuntimeSafetyModeState:
 
 
 @router.get("/funds-overview")
-async def get_funds_security_overview(
-    _: str = Depends(require_admin_actor),
-) -> dict:
+async def get_funds_security_overview() -> dict:
     """Financial Security Dashboard payload (Control Plane, not a funds mover)."""
     from services.security_control_plane import funds_overview
 
@@ -325,12 +284,8 @@ async def get_funds_security_overview(
 
 
 @router.post("/runtime/safety-mode", response_model=RuntimeSafetyModeState)
-async def update_runtime_safety_mode(
-    body: UpdateRuntimeSafetyModeRequest,
-    _: str = Depends(require_admin_actor),
-) -> RuntimeSafetyModeState:
-    # 落库（migration 0060）：刹车必须活过重启，见 services/runtime_safety.py。
-    return await set_runtime_safety_mode_persisted(
+async def update_runtime_safety_mode(body: UpdateRuntimeSafetyModeRequest) -> RuntimeSafetyModeState:
+    return set_runtime_safety_mode(
         enabled=body.enabled,
         reason=body.reason,
         actor_id=body.actor_id,
@@ -340,7 +295,6 @@ async def update_runtime_safety_mode(
 @router.post("/runtime/anchor-audit", response_model=RuntimeSafetyModeState)
 async def run_runtime_anchor_audit(
     actor_id: str | None = Query(default="system"),
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> RuntimeSafetyModeState:
     return await audit_capacity_anchor_and_maybe_trip(db=db, actor_id=actor_id)
@@ -388,7 +342,6 @@ async def get_security_ops_alerts(
     policy_actor_id: str | None = Query(default=None),
     auto_brake_on_transition_critical: bool = Query(default=True),
     auto_brake_actor_id: str | None = Query(default="security-ops"),
-    _: str = Depends(require_admin_actor),
     db: AsyncSession = Depends(get_db),
 ) -> SecurityOpsAlertReport:
     """
@@ -513,48 +466,19 @@ async def get_security_ops_alerts(
         for alert in report.alerts
     )
     if auto_brake_on_transition_critical and should_auto_brake:
-        # 迟滞（2026-10-13）：告警窗口往后看（轮询器默认 60 分钟），人工清闸之后那批
-        # **旧**拒绝还留在窗口里，下一轮轮询就会把闸原样拉回去 —— 清闸等于白清
-        # （线上实测「02:43 清，02:45 跳回」）。规则：人工清过闸之后，只有比清闸
-        # **更晚发生**的拒绝才允许再自动刹车；没有人工清闸记录、或证据日期判不了时，
-        # 照旧立刻刹车 —— 失败方向仍然偏安全那一侧。
-        override_at = get_runtime_safety_mode_state().manual_override_at
-        newest_denial_at = _newest_state_machine_denial_at(report)
-        suppressed_by_manual_override = override_at is not None and (
-            newest_denial_at is None or newest_denial_at <= override_at
+        set_runtime_safety_mode(
+            enabled=True,
+            reason="auto brake: settlement transition denied rate critical alert",
+            actor_id=auto_brake_actor_id,
         )
-        if suppressed_by_manual_override:
-            logger.warning(
-                "auto_brake_suppressed_by_manual_override",
-                manual_override_at=override_at.isoformat() if override_at else None,
-                latest_denied_at=newest_denial_at.isoformat() if newest_denial_at else None,
-                denied_count=report.summary.settlement_transition_denied_count,
-                actor_id=auto_brake_actor_id,
-            )
-            report = report.model_copy(
-                update={
-                    "recommended_actions": [
-                        *report.recommended_actions,
-                        "Auto-brake suppressed: the critical reject-rate evidence predates the last manual "
-                        "override, so the brake is not re-armed on stale events. New denials will re-arm it.",
-                    ]
-                }
-            )
-        else:
-            # 自动刹车同样落库：它常常正赶上「有人要去重启服务查故障」。
-            await set_runtime_safety_mode_persisted(
-                enabled=True,
-                reason="auto brake: settlement transition denied rate critical alert",
-                actor_id=auto_brake_actor_id,
-            )
-            from services.security_control_plane import classify_and_maybe_freeze
+        from services.security_control_plane import classify_and_maybe_freeze
 
-            classify_and_maybe_freeze(
-                classification="settlement_transition_denied_rate",
-                severity="critical",
-                actor_id=auto_brake_actor_id or "system",
-                reason="auto freeze: settlement transition denied rate critical",
-                freeze_scope="global",
-                submit_on_chain=False,
-            )
+        classify_and_maybe_freeze(
+            classification="settlement_transition_denied_rate",
+            severity="critical",
+            actor_id=auto_brake_actor_id or "system",
+            reason="auto freeze: settlement transition denied rate critical",
+            freeze_scope="global",
+            submit_on_chain=False,
+        )
     return report

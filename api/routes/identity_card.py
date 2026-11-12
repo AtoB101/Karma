@@ -11,14 +11,13 @@ from __future__ import annotations
 
 import re
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.session import get_db
 from services.identity_gateway import state_machine, store
-from services.identity_owner_access import require_identity_owner
 from services.identity_reputation import attach_card_reputation
 
 router = APIRouter()
@@ -60,14 +59,8 @@ class SetClassBody(BaseModel):
 # ── 凭证生命周期 ────────────────────────────────────────────
 
 @router.post("/v1/identity/{identity_id}/credentials")
-async def issue_credential_route(
-    identity_id: str,
-    request: Request,
-    body: IssueCredentialBody,
-    db: AsyncSession = Depends(get_db),
-):
+def issue_credential_route(identity_id: str, body: IssueCredentialBody):
     _check_identity_id(identity_id)
-    await require_identity_owner(db, request, identity_id, what="this identity")
     try:
         # 公开 API 禁止 auto_verify：必须经独立验证材料核验
         cred = store.issue_credential(
@@ -85,14 +78,8 @@ async def issue_credential_route(
 
 
 @router.post("/v1/identity/{identity_id}/credentials/{credential_id}/verify")
-async def verify_credential_route(
-    identity_id: str,
-    credential_id: str,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-):
+def verify_credential_route(identity_id: str, credential_id: str):
     _check_identity_id(identity_id)
-    await require_identity_owner(db, request, identity_id, what="this identity")
     _check_credential_id(credential_id)
     try:
         return {"credential": store.verify_credential(identity_id, credential_id, actor="api")}
@@ -105,15 +92,8 @@ async def verify_credential_route(
 
 
 @router.post("/v1/identity/{identity_id}/credentials/{credential_id}/reject")
-async def reject_credential_route(
-    identity_id: str,
-    credential_id: str,
-    request: Request,
-    body: RejectBody,
-    db: AsyncSession = Depends(get_db),
-):
+def reject_credential_route(identity_id: str, credential_id: str, body: RejectBody):
     _check_identity_id(identity_id)
-    await require_identity_owner(db, request, identity_id, what="this identity")
     _check_credential_id(credential_id)
     try:
         return {"credential": store.reject_credential(identity_id, credential_id, actor="api", reason=body.reason)}
@@ -124,15 +104,8 @@ async def reject_credential_route(
 
 
 @router.post("/v1/identity/{identity_id}/credentials/{credential_id}/revoke")
-async def revoke_credential_route(
-    identity_id: str,
-    credential_id: str,
-    request: Request,
-    body: RevokeBody,
-    db: AsyncSession = Depends(get_db),
-):
+def revoke_credential_route(identity_id: str, credential_id: str, body: RevokeBody):
     _check_identity_id(identity_id)
-    await require_identity_owner(db, request, identity_id, what="this identity")
     _check_credential_id(credential_id)
     try:
         return {"credential": store.revoke_credential(identity_id, credential_id, actor="api", reason=body.reason)}
@@ -170,12 +143,10 @@ async def get_card_route(
 @router.put("/v1/identity/{identity_id}/class")
 async def set_class_route(
     identity_id: str,
-    request: Request,
     body: SetClassBody,
     db: AsyncSession = Depends(get_db),
 ):
     _check_identity_id(identity_id)
-    await require_identity_owner(db, request, identity_id, what="this identity")
     try:
         store.set_identity_class(identity_id, body.identity_class, actor="api")
         ident = store.get_by_id(identity_id)

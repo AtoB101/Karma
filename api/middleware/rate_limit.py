@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import ipaddress
-import secrets
 import time
 from typing import Optional
 
@@ -22,19 +20,8 @@ RATE_LIMITS = {
     "verify":       (10,  60),    # 10 verifications / 60s
     "register":     (5,   60),    # 5 auth token exchanges / 60s
     "register_agent": (5, 60),    # 5 agent registrations / 60s (stress-test MEDIUM)
-    # Pairing is unauthenticated by design (the agent has no key yet), so the
-    # bucket is the only thing standing between a script and the pairing store.
-    "agent_pairing": (30, 60),   # 30 pairing requests/claims / 60s per IP
     "write_sensitive": (100, 60),  # 100 sensitive writes / 60s
     "state_transition": (20, 60), # 20 state transitions / 60s
-    # /runtime/* 写路径的**预鉴权**兜底额度（按真实客户端 IP，伪造不了）。真正紧的额度
-    # 在验签之后**按 runtime key** 判（见 runtime_gateway.get_runtime_context）：中间件跑在
-    # 鉴权之前，只认得了 socket peer，用它当紧额度会让同一台机器上的多个 agent 互相
-    # 挤占同一个桶，而且 429 重试本身也在填桶、越试越出不来（2026-09-30 并发压测实测）。
-    "runtime_preauth": (600, 60),  # 600 pre-auth runtime writes / 60s per IP
-    # P2-11: 读接口此前**完全没限流**（只有 auth/verify 和敏感写有限流）。
-    # 额度给得很宽（正常页面/轮询用不满），只用来兜住脚本化爬取与放大攻击。
-    "read":         (600, 60),   # 600 reads / 60s per API key or client IP
 }
 
 _redis: Optional[aioredis.Redis] = None
@@ -83,26 +70,24 @@ async def get_redis() -> aioredis.Redis:
     return _redis
 
 
-async def rate_limit(
-    request: Request,
-    limit_key: str = "default",
-    *,
-    bucket: str | None = None,
-) -> None:
+async def rate_limit(request: Request, limit_key: str = "default") -> None:
     """
     Sliding window rate limiter using Redis.
     Raises 429 if limit exceeded.
-
-    ``bucket`` 只在**调用方已经认证过身份**时才传（例如 runtime 网关验签通过后按
-    runtime key 分桶）。默认走 ``rate_limit_bucket`` —— 那层的口径是「猜不出、伪造
-    不了」，未认证的请求一律按真实客户端 IP 算。
     """
     max_requests, window_seconds = RATE_LIMITS.get(limit_key, RATE_LIMITS["default"])
 
-    # Identify the client on a dimension the caller cannot forge (see
-    # ``rate_limit_bucket``). A *configured* credential is hashed so Redis keys
-    # and MONITOR logs never store raw secrets.
-    client_id = bucket or rate_limit_bucket(request)
+    # Identify client: hash API keys / forwarded header so Redis keys and MONITOR logs never store raw secrets.
+    raw_key = request.headers.get("X-Karma-Api-Key")
+    raw_fwd = request.headers.get("X-Forwarded-For")
+    if raw_key:
+        digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:40]
+        client_id = f"ak:{digest}"
+    elif raw_fwd:
+        digest = hashlib.sha256(raw_fwd.encode("utf-8")).hexdigest()[:40]
+        client_id = f"xff:{digest}"
+    else:
+        client_id = request.client.host if request.client else "anonymous"
 
     redis_key = f"ratelimit:{limit_key}:{client_id}"
     now = time.time()
@@ -112,10 +97,7 @@ async def rate_limit(
         r = await get_redis()
         pipe = r.pipeline()
         pipe.zremrangebyscore(redis_key, 0, window_start)
-        # Unique member per request: two requests landing in the same clock tick
-        # must not overwrite each other (an undercount would loosen the limit
-        # exactly when the traffic is heaviest).
-        pipe.zadd(redis_key, {f"{now}:{secrets.token_hex(4)}": now})
+        pipe.zadd(redis_key, {str(now): now})
         pipe.zcard(redis_key)
         pipe.expire(redis_key, window_seconds)
         results = await pipe.execute()
@@ -145,19 +127,8 @@ async def rate_limit(
 # Dependency factories
 # ---------------------------------------------------------------------------
 
-# 名字里写着「写」的档位，就不该被同一条路由上的读请求吃掉。router 是**按前缀**挂
-# 依赖的（api/app.py）：/v1/settlement 上既挂着 GET /v1/settlement/{task_id}（轮询
-# 结算，一单要轮几十次），也挂着 POST .../buyer-accept，两者共用同一个
-# Depends(make_rate_limit_dep("write_sensitive"))。2026-09-30 并发压测实测：10 路并发
-# 轮询 = 120 次/60s，把写档的 100/60s 直接顶穿，轮询成片 429 —— 读被按写收费了。
-# 读自己那一档在 read_rate_limit_middleware（/v1/* 的 GET/HEAD，600/60s）。
-_WRITE_SCOPED_LIMITS = frozenset({"write_sensitive", "state_transition", "submit"})
-
-
 def make_rate_limit_dep(limit_key: str = "default"):
     async def dep(request: Request):
-        if limit_key in _WRITE_SCOPED_LIMITS and request.method.upper() in ("GET", "HEAD"):
-            return
         await rate_limit(request, limit_key)
     return dep
 
@@ -167,217 +138,5 @@ submit_rate_limit   = make_rate_limit_dep("submit")
 verify_rate_limit   = make_rate_limit_dep("verify")
 register_rate_limit = make_rate_limit_dep("register")
 register_agent_rate_limit = make_rate_limit_dep("register_agent")
-agent_pairing_rate_limit = make_rate_limit_dep("agent_pairing")
 write_sensitive_rate_limit = make_rate_limit_dep("write_sensitive")
 state_transition_rate_limit = make_rate_limit_dep("state_transition")
-
-
-# ---------------------------------------------------------------------------
-# Client identity for rate limiting — the trust anchor is the *socket peer*.
-#
-# ``X-Forwarded-For`` is assembled by nginx with ``$proxy_add_x_forwarded_for``,
-# which *appends* to whatever the caller sent: a caller can prepend any value it
-# likes, so the header as a whole is caller chosen and must never be the bucket
-# key on its own — rotating it used to mint a fresh bucket per request, which
-# silently disabled every limit below. ``X-Real-IP`` is set by nginx from
-# ``$remote_addr``.
-#
-# Headers are therefore only believed when the connection itself came from a
-# trusted proxy (loopback / private range by default). Anything else — a direct
-# connection to the app port, or a proxy that does not rewrite the header — is
-# keyed on the peer address, which the caller cannot choose.
-# ---------------------------------------------------------------------------
-
-DEFAULT_TRUSTED_PROXY_CIDRS = "127.0.0.0/8,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
-
-
-def _trusted_proxy_nets() -> tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]:
-    raw = (getattr(settings, "rate_limit_trusted_proxy_cidrs", "") or "").strip() or DEFAULT_TRUSTED_PROXY_CIDRS
-    nets: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
-    for item in raw.split(","):
-        entry = item.strip()
-        if not entry:
-            continue
-        try:
-            nets.append(ipaddress.ip_network(entry, strict=False))
-        except ValueError:
-            continue  # a typo must not loosen the control
-    if not nets:
-        # Misconfiguration must not collapse every caller into one bucket.
-        nets = [ipaddress.ip_network(x) for x in DEFAULT_TRUSTED_PROXY_CIDRS.split(",")]
-    return tuple(nets)
-
-
-def _is_trusted_proxy(host: str) -> bool:
-    if not host:
-        return False
-    try:
-        addr = ipaddress.ip_address(host)
-    except ValueError:
-        return False  # e.g. the test client's "testclient" host
-    return any(addr in net for net in _trusted_proxy_nets())
-
-
-def real_client_ip(request: Request) -> str:
-    """The client address limits are enforced against — never caller chosen."""
-    peer = (request.client.host if request.client and request.client.host else "") or ""
-    if not _is_trusted_proxy(peer):
-        return peer or "unknown"
-    real = (request.headers.get("X-Real-IP") or "").strip()
-    if real:
-        return real
-    chain = [part.strip() for part in (request.headers.get("X-Forwarded-For") or "").split(",") if part.strip()]
-    if chain:
-        # The *last* entry is the one our own proxy appended; the ones before it
-        # are whatever the caller sent.
-        return chain[-1]
-    return peer or "unknown"
-
-
-# 「推进状态机 / 碰资金」的路径片段。
-#
-# 中间件（api/app.py）用它挑额度档；runtime 网关在**验签之后**用同一份规则按 runtime
-# key 再判一次 —— 两处必须同口径，所以定义放在这里共用。
-STATE_TRANSITION_SEGMENTS = (
-    "/lock",
-    "/start",
-    "/submit",
-    "/fail",
-    "/partial",
-    "/regret",
-    "/dispute",
-    "/auto-arbitrate",
-    "/execute",
-    "/accept",
-    "/cancel",
-    "/retry",
-    "/requeue",
-    "/maintenance/",
-)
-
-
-def is_state_transition_write(path: str) -> bool:
-    """这条路径是不是「推进状态机 / 碰资金」的写。"""
-    return any(segment in path for segment in STATE_TRANSITION_SEGMENTS)
-
-
-def write_limit_key_for_path(path: str) -> str:
-    """敏感写该用哪一档额度。"""
-    return "state_transition" if is_state_transition_write(path) else "write_sensitive"
-
-
-def _configured_key_digests() -> set[str]:
-    """SHA-256 digests of the configured API keys (never the raw secrets)."""
-    return {
-        hashlib.sha256(key.encode("utf-8")).hexdigest()
-        for key in settings.auth_api_keys_map().values()
-        if key
-    }
-
-
-def _verified_key_digest(raw_key: str) -> Optional[str]:
-    """SHA-256 digest of an API key the server can actually verify, else None.
-
-    两类算「验过」：AUTH_API_KEYS 里的静态钥匙（运维自用），以及一键接入流程铸出来的
-    agent 钥匙（services.agent_bootstrap_credentials，只存 sha256 哈希）。其余——包括
-    自己编造的 X-Karma-Api-Key——一律不算，所以「换着花样编钥匙骗一个新桶」没有收益。
-    """
-    digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
-    if digest in _configured_key_digests():
-        return digest
-    parts = raw_key.split("_", 2)
-    if len(parts) < 3 or parts[0] != "karma":
-        return None
-    try:
-        from services.agent_bootstrap_credentials import verify_minted_api_key
-
-        if verify_minted_api_key(parts[1], parts[2]):
-            return digest
-    except Exception:  # noqa: BLE001
-        return None
-    return None
-
-
-def rate_limit_bucket(request: Request) -> str:
-    """Redis bucket id for the general limiter.
-
-    A *verified* API key gets its own bucket, so several agents running on one
-    host — or several users behind one NAT — keep their own budget. Everything
-    else (unauthenticated traffic, an invented ``X-Karma-Api-Key``, a spoofed
-    ``X-Forwarded-For``) falls back to the unforgeable client IP, which is what
-    makes rotating either header useless.
-    """
-    raw_key = (request.headers.get("X-Karma-Api-Key") or "").strip()
-    if raw_key:
-        digest = _verified_key_digest(raw_key)
-        if digest:
-            return f"ak:{digest[:40]}"
-    return f"ip:{real_client_ip(request)}"
-
-
-def runtime_key_bucket(token: str) -> str:
-    """按 runtime key 分桶（**只能在验签通过之后**调用）。
-
-    和 API key 一样只留摘要：Redis key 与 MONITOR 日志里永远不出现明文钥匙。
-    直接拿未经验证的 header 当桶键等于给攻击者送无限桶 —— 所以调用点只有一个，
-    在 runtime_gateway.get_runtime_context 里。
-    """
-    return "rk:" + hashlib.sha256(token.encode("utf-8")).hexdigest()[:40]
-
-
-async def _count_and_bump(redis_key: str, window_seconds: int) -> int:
-    """Sliding-window counter shared by the sybil buckets.
-
-    Mirrors the general limiter's failure policy: 503 when Redis is down and
-    ``RATE_LIMIT_REDIS_FAIL_CLOSED`` is on, otherwise degrade to a process-local
-    counter rather than failing open.
-    """
-    now = time.time()
-    window_start = now - window_seconds
-    try:
-        r = await get_redis()
-        pipe = r.pipeline()
-        pipe.zremrangebyscore(redis_key, 0, window_start)
-        # Unique member: two requests landing in the same clock tick must not
-        # overwrite each other (an undercount would loosen the control).
-        pipe.zadd(redis_key, {f"{now}:{secrets.token_hex(4)}": now})
-        pipe.zcard(redis_key)
-        pipe.expire(redis_key, window_seconds)
-        results = await pipe.execute()
-        return int(results[2])
-    except Exception:
-        if settings.rate_limit_redis_fail_closed:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Rate limiting service unavailable",
-            ) from None
-        async with _memory_lock:
-            count = _memory_sliding_count(redis_key, window_seconds) + 1
-            _memory_windows.setdefault(redis_key, []).append(time.time())
-            return count
-
-
-async def enforce_zero_funding_registration_limit(request: Request) -> None:
-    """Throttle identity creation from wallets that hold no funds.
-
-    Called only when a *new* identity is about to be created for an unfunded
-    wallet (see ``services/wallet_funding.py``). A funded wallet never reaches
-    this code, so real users are never blocked by other people's spam.
-    """
-    window = max(1, int(settings.registration_zero_funding_window_seconds))
-    per_ip_max = max(0, int(settings.registration_zero_funding_max_per_ip))
-    global_max = max(0, int(settings.registration_zero_funding_max_global))
-
-    ip_count = await _count_and_bump(f"regzero:ip:{real_client_ip(request)}", window)
-    global_count = await _count_and_bump("regzero:global", window)
-
-    if (per_ip_max and ip_count > per_ip_max) or (global_max and global_count > global_max):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=(
-                "This wallet holds no funds yet; unfunded registrations are rate limited "
-                f"({per_ip_max} per {window}s per IP, {global_max} platform-wide). "
-                "Fund the wallet (gas or settlement token) and retry."
-            ),
-            headers={"Retry-After": str(window)},
-        )

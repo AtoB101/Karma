@@ -17,72 +17,26 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config.settings import settings
 from db.session import get_db
 from decentralized_verifier.models import Attestation as AttestationModel
 from decentralized_verifier.models import Challenge as ChallengeModel
-from decentralized_verifier.models import BondSlash as BondSlashModel
 from decentralized_verifier.models import VerifierNode as VerifierNodeModel
 from decentralized_verifier.schemas import (
     AttestationListResponse,
     AttestationResponse,
     AttestationSubmitRequest,
-    BondSlashListResponse,
-    BondSlashResponse,
-    BondSlashStatusRequest,
     ChallengeOpenRequest,
     ChallengeResolveRequest,
     ChallengeResponse,
     NetworkStatsResponse,
-    NodeSignMessageRequest,
-    NodeSignMessageResponse,
     VerifierListResponse,
     VerifierNodeResponse,
     VerifierRegisterRequest,
     VerifierStakeUpdateRequest,
-    VerifierUnstakeRequest,
 )
-from services import bond_slash, settlement_reversal, verifier_bond, verifier_wallet
-from services.actor_guards import require_admin_actor, require_arbitration_operator
-from services.chain import verifier_bond_vault
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
-
-
-def _enforce_node_signature(
-    *,
-    message: str,
-    wallet_address: str | None,
-    signature: str | None,
-    nonce: str | None,
-    endpoint: str,
-) -> None:
-    """写接口的签名闸门（开关默认关；生产强制打开，见 config/settings.py）。"""
-    verifier_wallet.enforce_node_signature(
-        enabled=settings.verifier_require_node_signature,
-        message=message,
-        wallet_address=wallet_address or "",
-        signature=signature,
-        nonce=nonce,
-        endpoint=endpoint,
-    )
-
-
-@router.post("/sign-message", response_model=NodeSignMessageResponse)
-async def node_sign_message(body: NodeSignMessageRequest):
-    """按动作回一段**待签文字**（节点自有 key 的签名校验用）。
-
-    格式只在 services/verifier_wallet.py 里定义一份：操作台和节点程序都不自己拼
-    消息，免得两边格式漂了、签名永远验不过。回的文字不含任何秘密 —— 它就是调用方
-    递进来的那几个字段。
-    """
-    payload = dict(body.payload or {})
-    return NodeSignMessageResponse(
-        kind=body.kind,
-        message=verifier_wallet.build_message(body.kind, payload),
-        nonce=str(payload.get("signature_nonce") or ""),
-    )
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -96,18 +50,6 @@ async def register_verifier(
     db: AsyncSession = Depends(get_db),
 ):
     """Register a new verifier node in the network."""
-    _enforce_node_signature(
-        message=verifier_wallet.build_node_register_message(
-            wallet_address=body.wallet_address,
-            stake_amount=body.stake_amount,
-            endpoint_url=body.endpoint_url,
-            nonce=body.signature_nonce,
-        ),
-        wallet_address=body.wallet_address,
-        signature=body.signature,
-        nonce=body.signature_nonce,
-        endpoint="verifiers/register",
-    )
     # Check for duplicate wallet
     existing = await db.execute(
         select(VerifierNodeModel).where(
@@ -117,40 +59,16 @@ async def register_verifier(
     if existing.scalar_one_or_none():
         raise HTTPException(409, "A verifier with this wallet address already exists")
 
-    # ── G12 入场闸门：声明了主人身份就走金库档，押金必须真锁仓背书 ──────────
-    owner_identity_id = (body.owner_identity_id or "").strip() or None
-    if verifier_bond.require_owner_identity() and not owner_identity_id:
-        raise HTTPException(
-            422,
-            "VERIFIER_REQUIRE_OWNER_IDENTITY is on: owner_identity_id is required to register a node",
-        )
-    if owner_identity_id:
-        await verifier_bond.assert_owner_wallet_matches(
-            db, identity_id=owner_identity_id, wallet_address=body.wallet_address
-        )
-        await verifier_bond.assert_bond_acceptable(
-            db, identity_id=owner_identity_id, stake_amount=body.stake_amount
-        )
-
     node = VerifierNodeModel(
         wallet_address=body.wallet_address,
         stake_amount=body.stake_amount,
         endpoint_url=body.endpoint_url,
-        owner_identity_id=owner_identity_id,
-        bond_floor=verifier_bond.min_bond_amount() if owner_identity_id else 0.0,
-        bond_state="active" if owner_identity_id else "appointed",
     )
     db.add(node)
     await db.commit()
     await db.refresh(node)
 
-    logger.info(
-        "verifier_registered",
-        verifier_id=node.id,
-        wallet=body.wallet_address,
-        owner_identity_id=owner_identity_id,
-        bond_state=node.bond_state,
-    )
+    logger.info("verifier_registered", verifier_id=node.id, wallet=body.wallet_address)
     return node
 
 
@@ -185,115 +103,6 @@ async def list_verifiers(
     )
 
 
-@router.get("/slashes", response_model=BondSlashListResponse)
-async def list_bond_slashes(
-    subject_kind: str | None = Query(default=None),
-    subject_id: str | None = Query(default=None),
-    status: str | None = Query(default=None),
-    limit: int = Query(default=100, ge=1, le=500),
-    db: AsyncSession = Depends(get_db),
-):
-    """罚没台账（G12）：谁被罚了、罚了多少、80/20 怎么分、出账到哪一步。
-
-    ``status`` 停在 ``pending`` 表示**账已记、节点已停，但链上还没出账**
-    （金库未部署 / 治理账户还没签）—— 这里如实呈现，不把 pending 写成 settled。
-    """
-    rows = await bond_slash.list_slashes(
-        db, subject_kind=subject_kind, subject_id=subject_id, status=status, limit=limit
-    )
-    return BondSlashListResponse(
-        slashes=[BondSlashResponse.model_validate(row) for row in rows],
-        total=len(rows),
-        pool_total=await bond_slash.pool_total(db),
-        vault_configured=verifier_bond.vault_configured(),
-    )
-
-
-@router.post("/slashes/{slash_id}/status", response_model=BondSlashResponse)
-async def set_bond_slash_status(
-    slash_id: str,
-    body: BondSlashStatusRequest,
-    actor: str = Depends(require_admin_actor),
-    db: AsyncSession = Depends(get_db),
-):
-    """罚没出账的最后一格：把台账从 pending 推到 submitted / settled / failed（G12）。
-
-    **没有链上 tx 就没有 settled**（``services/bond_slash.py`` 的硬规矩）。所以 ``settled``
-    这一档不只要求带 tx hash，还要回链上核验：这笔交易必须已上链、没有 revert、
-    收款方是当前配置的质押金库、调用的是 ``slash(address,address,uint256,bytes32)``，
-    而且 calldata 里**被罚的钱包 / 受害方 / 金额**逐一对得上这一行台账。核不过就 409 ——
-    台账里的「已出账」必须对应一笔真的出账，而不是运维手拄的一个字符串
-    （也不能拿一笔罚别人的 tx 来顶账）。
-
-    为什么单独有这个入口：钱是治理账户在链上动的，后端只负责如实记账。没有这一格，
-    罚没台账会永远停在 ``pending``，``pool_total`` 也会一直把未出账的钱算进池子。
-    """
-    row = await db.get(BondSlashModel, slash_id)
-    if row is None:
-        raise HTTPException(404, f"bond slash {slash_id} not found")
-
-    status = (body.status or "").strip().lower()
-    tx_hash = (body.tx_hash or "").strip()
-    proof: dict | None = None
-    if status == bond_slash.STATUS_SETTLED:
-        if not tx_hash:
-            raise HTTPException(
-                422, "a settled bond slash must carry the tx hash that moved the money"
-            )
-        ledger_wallet = (row.wallet_address or "").strip()
-        if not ledger_wallet:
-            # 没有指认钱包的台账行，链上无从对账 —— 宁可发不出出账，也不写一个笼统的「已出账」。
-            raise HTTPException(
-                409,
-                "bond slash %s has no wallet on the ledger: there is nothing on-chain "
-                "to point at. Bind the identity's wallet and stake it in the vault "
-                "before overturning, then the row will carry it." % slash_id,
-            )
-        try:
-            proof = await verifier_bond_vault.verify_slash_tx(
-                tx_hash,
-                expected_verifier=ledger_wallet,
-                expected_victim=row.victim_wallet_address,
-                expected_amount_usdc=row.amount,
-            )
-        except verifier_bond_vault.BondVaultUnavailable as exc:
-            raise HTTPException(
-                409,
-                f"cannot mark {slash_id} settled: tx {tx_hash} could not be verified against "
-                f"the bond vault ({exc})",
-            ) from exc
-
-    await bond_slash.settle_slash(
-        db, slash_id=slash_id, status=status, tx_hash=tx_hash or None, error=body.error
-    )
-
-    # ④-B2：这一笔罚没如果来自「裁决被推翻」，而且刚才是**回链核过**才标 settled 的，
-    # 那就顺手把对应的赔付台账的实付记上 —— 这是 ``paid_amount`` 唯一的增加入口。
-    # 核都核不过的（status != settled）一个字都不加：账上的「已赔」必须对应一笔真转账。
-    reversal = None
-    if status == bond_slash.STATUS_SETTLED:
-        try:
-            reversal = await settlement_reversal.credit_from_settled_slash(
-                db, slash=row, chain_proof=proof or {}
-            )
-        except settlement_reversal.SettlementReversalError as exc:
-            raise HTTPException(exc.status, exc.message) from exc
-
-    await db.commit()
-    await db.refresh(row)
-    logger.info(
-        "bond_slash_status_set",
-        slash_id=slash_id,
-        status=status,
-        actor=actor,
-        tx_hash=tx_hash or None,
-        verified_block=(proof or {}).get("block"),
-        settlement_reversal_id=(reversal.reversal_id if reversal else None),
-        settlement_reversal_paid=(float(reversal.paid_amount) if reversal else None),
-    )
-    return BondSlashResponse.model_validate(row)
-
-
 @router.get("/{verifier_id}", response_model=VerifierNodeResponse)
 async def get_verifier(
     verifier_id: str,
@@ -323,140 +132,12 @@ async def update_verifier_stake(
     if not node:
         raise HTTPException(404, f"Verifier not found: {verifier_id}")
 
-    _enforce_node_signature(
-        message=verifier_wallet.build_node_stake_message(
-            verifier_id=verifier_id,
-            wallet_address=node.wallet_address,
-            stake_amount=body.stake_amount,
-            nonce=body.signature_nonce,
-        ),
-        wallet_address=node.wallet_address,
-        signature=body.signature,
-        nonce=body.signature_nonce,
-        endpoint="verifiers/stake",
-    )
-
-    # ── G12：金库档加押 / 减押都要过闸门；加押同时撤销进行中的退出 ──────────
-    if node.owner_identity_id:
-        await verifier_bond.assert_bond_acceptable(
-            db, identity_id=node.owner_identity_id, stake_amount=body.stake_amount
-        )
-        if node.unbond_requested_at is not None:
-            node.unbond_requested_at = None
-            node.unbond_amount = 0.0
-
     node.stake_amount = body.stake_amount
-    await verifier_bond.refresh_node_bond_state(db, node=node)
     await db.commit()
     await db.refresh(node)
 
     logger.info(
-        "verifier_stake_updated",
-        verifier_id=verifier_id,
-        stake=body.stake_amount,
-        bond_state=node.bond_state,
-    )
-    return node
-
-
-@router.post("/{verifier_id}/unstake", response_model=VerifierNodeResponse)
-async def request_verifier_unstake(
-    verifier_id: str,
-    body: VerifierUnstakeRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """发起退出：冻结提取额度、开始冷却计时（G12 退出闭环的第一步）。
-
-    冷却期内**保证金仍可被罚没** —— 这正是冷却期的意义：堵住「被挑战了先跑」。
-    冷却期满后用 ``POST /{id}/unstake/finalize`` 放款；期间随时可用加押取消退出。
-    """
-    node = await _load_node_or_404(db, verifier_id)
-
-    _enforce_node_signature(
-        message=verifier_wallet.build_node_unstake_message(
-            verifier_id=verifier_id,
-            wallet_address=node.wallet_address,
-            amount=body.amount,
-            nonce=body.signature_nonce,
-        ),
-        wallet_address=node.wallet_address,
-        signature=body.signature,
-        nonce=body.signature_nonce,
-        endpoint="verifiers/unstake",
-    )
-
-    bond = float(node.stake_amount or 0.0)
-    amount = float(body.amount or 0.0) or bond
-    if amount <= 0:
-        raise HTTPException(409, "this node has nothing to unstake")
-    if amount - 1e-9 > bond:
-        raise HTTPException(422, "unstake amount exceeds the bonded stake")
-
-    node.unbond_amount = round(amount, 8)
-    node.unbond_requested_at = datetime.utcnow()
-    await verifier_bond.refresh_node_bond_state(db, node=node)
-    await db.commit()
-    await db.refresh(node)
-
-    logger.info(
-        "verifier_unstake_requested",
-        verifier_id=verifier_id,
-        amount=node.unbond_amount,
-        cooldown_hours=int(verifier_bond.unbond_cooldown().total_seconds() // 3600),
-    )
-    return node
-
-
-@router.post("/{verifier_id}/unstake/finalize", response_model=VerifierNodeResponse)
-async def finalize_verifier_unstake(
-    verifier_id: str,
-    body: VerifierUnstakeRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """冷却期满后放款并停用。冷却期没走完一律 409 —— 不给「抢跑」留口子。
-
-    放款金额按**当前剩余保证金**取，被罚没过就少给 —— 台账与链上金库口径一致
-    （``KarmaVerifierBond.withdrawUnstake`` 同样按剩余额度放款）。
-    """
-    node = await _load_node_or_404(db, verifier_id)
-
-    _enforce_node_signature(
-        message=verifier_wallet.build_node_unstake_message(
-            verifier_id=verifier_id,
-            wallet_address=node.wallet_address,
-            amount=body.amount,
-            nonce=body.signature_nonce,
-        ),
-        wallet_address=node.wallet_address,
-        signature=body.signature,
-        nonce=body.signature_nonce,
-        endpoint="verifiers/unstake",
-    )
-
-    if node.unbond_requested_at is None:
-        raise HTTPException(409, "this node has not requested an unstake")
-    ready_at = node.unbond_requested_at + verifier_bond.unbond_cooldown()
-    now = datetime.utcnow()
-    if now < ready_at:
-        raise HTTPException(409, f"unstake cooldown is still running until {ready_at.isoformat()}Z")
-
-    released = min(float(node.unbond_amount or 0.0), float(node.stake_amount or 0.0))
-    node.stake_amount = round(float(node.stake_amount or 0.0) - released, 8)
-    node.unbond_amount = 0.0
-    node.unbond_requested_at = None
-    floor = verifier_bond.min_bond_amount()
-    if node.bond_state == "appointed" and float(node.stake_amount or 0.0) <= 1e-9:
-        node.is_active = False
-    elif float(node.stake_amount or 0.0) <= 1e-9 or float(node.stake_amount or 0.0) + 1e-9 < floor:
-        node.is_active = False
-        node.bond_state = "released"
-    await verifier_bond.refresh_node_bond_state(db, node=node)
-    await db.commit()
-    await db.refresh(node)
-
-    logger.info(
-        "verifier_unstake_finalized", verifier_id=verifier_id, released=released,
-        remaining=node.stake_amount,
+        "verifier_stake_updated", verifier_id=verifier_id, stake=body.stake_amount
     )
     return node
 
@@ -481,27 +162,6 @@ async def submit_attestation(
         raise HTTPException(404, f"Verifier not found: {body.verifier_id}")
     if not verifier.is_active:
         raise HTTPException(400, f"Verifier is not active: {body.verifier_id}")
-
-    # ── P2：出证前现算一次「在任」——押金被划走（含罚没）当场 403 ──────────
-    await verifier_bond.assert_node_bond_ok(db, node=verifier, what="attesting")
-
-    _enforce_node_signature(
-        message=verifier_wallet.build_node_attestation_message(
-            verifier_id=body.verifier_id,
-            wallet_address=verifier.wallet_address,
-            task_id=body.task_id,
-            decision=body.decision,
-            bundle_id=body.bundle_id,
-            bundle_cid=body.bundle_cid,
-            checks_passed=body.checks_passed,
-            checks_total=body.checks_total,
-            nonce=body.signature_nonce,
-        ),
-        wallet_address=verifier.wallet_address,
-        signature=body.signature,
-        nonce=body.signature_nonce,
-        endpoint="verifiers/attestations",
-    )
 
     attestation = AttestationModel(
         task_id=body.task_id,
@@ -585,20 +245,6 @@ async def open_challenge(
     db: AsyncSession = Depends(get_db),
 ):
     """Open a new challenge against a task / evidence bundle."""
-    _enforce_node_signature(
-        message=verifier_wallet.build_node_challenge_message(
-            wallet_address=body.wallet_address,
-            task_id=body.task_id,
-            bundle_id=body.bundle_id,
-            reason=body.reason,
-            quorum_size=body.quorum_size,
-            nonce=body.signature_nonce,
-        ),
-        wallet_address=body.wallet_address,
-        signature=body.signature,
-        nonce=body.signature_nonce,
-        endpoint="verifiers/challenges",
-    )
     now = datetime.utcnow()
     window_end = now + timedelta(minutes=30)
 
@@ -644,16 +290,9 @@ async def get_challenge(
 async def resolve_challenge(
     challenge_id: str,
     body: ChallengeResolveRequest,
-    actor: str = Depends(require_arbitration_operator),
     db: AsyncSession = Depends(get_db),
 ):
-    """裁决一场挑战 —— **只认仲裁员 / 管理员白名单**（``ARBITRATOR_ACTOR_IDS`` ∪ ``ADMIN_ACTOR_IDS``）。
-
-    此前这个接口谁都能调，``status`` / ``resolution`` 还是自由文本：不改节点状态、
-    不动钱、不扣分，等于「挑战」没有后果。现在 ``UPHELD``（挑战成立）会走
-    ``_apply_upheld_slash``：为该 task 出过证的节点当场停用 + 记罚没台账
-    （80% 给受害方 / 20% 进罚没池，幂等）+ 扣声誉。
-    """
+    """Resolve an open challenge."""
     result = await db.execute(
         select(ChallengeModel).where(ChallengeModel.id == challenge_id)
     )
@@ -662,24 +301,6 @@ async def resolve_challenge(
         raise HTTPException(404, f"Challenge not found: {challenge_id}")
     if challenge.status not in ("OPEN", "ACTIVE"):
         raise HTTPException(400, f"Challenge is not open: {challenge.status}")
-
-    _enforce_node_signature(
-        message=verifier_wallet.build_node_challenge_resolve_message(
-            wallet_address=body.wallet_address,
-            challenge_id=challenge_id,
-            status=body.status,
-            resolution=body.resolution,
-            nonce=body.signature_nonce,
-        ),
-        wallet_address=body.wallet_address,
-        signature=body.signature,
-        nonce=body.signature_nonce,
-        endpoint="verifiers/challenges/resolve",
-    )
-
-    slashed: list[str] = []
-    if body.status == "UPHELD":
-        slashed = await _apply_upheld_slash(db, challenge=challenge, body=body, actor=actor)
 
     challenge.status = body.status
     challenge.resolution = body.resolution
@@ -691,8 +312,6 @@ async def resolve_challenge(
         "challenge_resolved",
         challenge_id=challenge_id,
         status=body.status,
-        actor=actor,
-        bond_slashes=len(slashed),
     )
     return challenge
 
@@ -731,99 +350,6 @@ async def get_network_stats(db: AsyncSession = Depends(get_db)):
 # ═══════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════
-
-
-async def _load_node_or_404(db: AsyncSession, verifier_id: str) -> VerifierNodeModel:
-    result = await db.execute(
-        select(VerifierNodeModel).where(VerifierNodeModel.id == verifier_id)
-    )
-    node = result.scalar_one_or_none()
-    if not node:
-        raise HTTPException(404, f"Verifier not found: {verifier_id}")
-    return node
-
-
-async def _apply_upheld_slash(
-    db: AsyncSession,
-    *,
-    challenge: ChallengeModel,
-    body: ChallengeResolveRequest,
-    actor: str,
-) -> list[str]:
-    """挑战成立 → 判负后果：停用 + 记台账 + 扣声誉（幂等，重复裁决不重复扣）。
-
-    * **台账**当场写，按（主体, 来源=challenge:id）唯一（见 services/bond_slash.py）；
-    * **钱**的出账是另一件事：金库没部署就停在 ``pending``，绝不谎报已出账；
-    * **停用**是当场生效的 —— 不存在「还没出账就先跑掉」的窗口：保证金在链上金库里锁着。
-    """
-    from db.models.orm import TaskContractModel
-    from services.identity_wallet_binding import get_bound_wallet
-
-    attestations = (
-        await db.execute(
-            select(AttestationModel).where(AttestationModel.task_id == challenge.task_id)
-        )
-    ).scalars().all()
-    verifier_ids = sorted({a.verifier_id for a in attestations if a.verifier_id})
-
-    victim_wallet = (body.victim_wallet_address or "").strip() or None
-    victim_identity = (body.victim_identity_id or "").strip() or None
-    if not victim_wallet:
-        # 尽力从任务合同里认出受害方（买家身份）；认不出就让 80% 也进池 —— 不做无根据的指认。
-        contract = await db.get(TaskContractModel, challenge.task_id)
-        if contract is not None and contract.client_agent_id:
-            victim_identity = victim_identity or contract.client_agent_id
-            victim_wallet = await get_bound_wallet(db, victim_identity)
-
-    floor = verifier_bond.min_bond_amount()
-    slash_ids: list[str] = []
-    for verifier_id in verifier_ids:
-        node = await db.get(VerifierNodeModel, verifier_id)
-        if node is None:
-            continue
-        bond = max(0.0, float(node.stake_amount or 0.0))
-        if bond <= 0:
-            continue
-        amount = float(body.slash_amount) if body.slash_amount is not None else bond
-        amount = min(amount, bond)
-        if amount <= 0:
-            continue
-
-        row, created = await bond_slash.record_slash(
-            db,
-            subject_kind=bond_slash.SUBJECT_VERIFIER_NODE,
-            subject_id=node.id,
-            wallet_address=node.wallet_address,
-            victim_wallet_address=victim_wallet,
-            victim_identity_id=victim_identity,
-            source_kind=bond_slash.SOURCE_CHALLENGE,
-            source_id=challenge.id,
-            amount=amount,
-            reason=body.resolution,
-        )
-        slash_ids.append(row.id)
-        if not created:
-            continue
-
-        node.stake_amount = round(bond - amount, 8)
-        node.slash_unsettled = round(float(node.slash_unsettled or 0.0) + amount, 8)
-        if node.stake_amount <= 1e-9 or node.stake_amount + 1e-9 < floor:
-            node.is_active = False
-            node.bond_state = "released"
-        node.reputation_score = round(
-            max(0.0, float(node.reputation_score or 0.0) - 25.0), 4
-        )
-        node.updated_at = datetime.utcnow()
-
-    logger.info(
-        "challenge_upheld",
-        challenge_id=challenge.id,
-        task_id=challenge.task_id,
-        actor=actor,
-        slashed_verifiers=len(slash_ids),
-        victim_wallet=victim_wallet,
-    )
-    return slash_ids
 
 
 async def _count(

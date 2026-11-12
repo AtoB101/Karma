@@ -53,7 +53,6 @@ class CreatePaymentCodeRequest(BaseModel):
 
 class SellerActionRequest(BaseModel):
     seller_identity_id: str
-    seller_profile_id: str | None = None
 
 
 class RejectPaymentCodeRequest(BaseModel):
@@ -227,13 +226,7 @@ async def accept_payment_code(
     row = await db.get(VoucherModel, voucher_id)
     if not row:
         raise HTTPException(404, f"Voucher {voucher_id} not found")
-    await accept_voucher_row(
-        db,
-        row,
-        seller_identity_id=body.seller_identity_id,
-        actor="console_manual",
-        seller_profile_id=body.seller_profile_id,
-    )
+    await accept_voucher_row(db, row, seller_identity_id=body.seller_identity_id, actor="console_manual")
     await db.commit()
     return _to_schema(row)
 

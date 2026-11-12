@@ -3,10 +3,9 @@ Karma Public API — FastAPI Application
 """
 from __future__ import annotations
 
-import asyncio
 import time
 import uuid
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 
 import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -14,71 +13,56 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Histogram, make_asgi_app
 
-from config.settings import settings
-from api.middleware.auth import get_current_agent_id, require_auth_if_enabled, resolve_agent_id_from_auth_headers
-from api.middleware.rate_limit import (
-    is_state_transition_write,
-    make_rate_limit_dep,
-    rate_limit,
-    real_client_ip,
-    write_limit_key_for_path,
+from api.middleware.auth import (
+    get_current_agent_id,
+    require_auth_if_enabled,
+    resolve_agent_id_from_auth_headers,
 )
-from services.security_monitoring import SecurityMonitoringEventType, record_security_event
-from db.session import init_db
+from api.middleware.rate_limit import make_rate_limit_dep, rate_limit
 from api.routes import (
-    agents,
-    agent_pairing,
-    auth,
-    contracts,
-    receipts,
-    bundles,
-    settlement,
-    reputation,
-    reviews,
-    verify,
-    capacity,
-    console_2fa,
-    console_caps,
-    console_policy,
-    vouchers,
-    progress,
-    identities,
-    arbitration,
-    bilateral,
-    responsibility,
-    security,
     admin_controls,
-    runtime_gateway,
-    openclaw,
-    payment_codes,
-    trade,
-    x402,
-    payment_intents,
-    evidence,
-    verifier_network,
-    discovery,
-    orchestration,
-    standards,
+    agents,
+    arbitration,
+    auth,
+    bilateral,
+    bundles,
+    capacity,
     confirmations,
+    contracts,
     delivery_verification,
-    settlement_reputation,
-    telegram_miniapp_auth,
-    telegram_miniapp_commerce,
-    telegram_miniapp_registry,
-    telegram_miniapp_bot,
-    chat_adapters,
+    discovery,
+    evidence,
+    identities,
     identity_card,
-    identity_role_profiles,
     identity_disclosures,
     identity_kyc,
-    identity_verification,
-    entity_verification,
-    skill_market,
-    developers,
-    escrow,
-    payment_ledger,
-    onboarding_authorization,
+    identity_role_profiles,
+    openclaw,
+    orchestration,
+    payment_codes,
+    payment_intents,
+    progress,
+    receipts,
+    reputation,
+    responsibility,
+    runtime_gateway,
+    security,
+    settlement,
+    settlement_reputation,
+    standards,
+    telegram_miniapp_auth,
+    telegram_miniapp_bot,
+    telegram_miniapp_commerce,
+    telegram_miniapp_registry,
+    trade,
+    verifier_network,
+    verify,
+    vouchers,
+    x402,
 )
+from config.settings import settings
+from db.session import init_db
+from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 
 logger = structlog.get_logger(__name__)
 security_audit_logger = structlog.get_logger("security.audit")
@@ -91,7 +75,6 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/verify",
     "/v1/progress/",
     "/v1/capacity/",
-    "/v1/escrow/",
     "/v1/receipts",
     "/v1/bundles",
     "/v1/responsibility/",
@@ -103,17 +86,25 @@ SENSITIVE_WRITE_PREFIXES = (
     "/v1/verifiers/",
     "/v1/confirmations/",
     "/v1/identity/",
-    "/v1/developers/",
-    "/v1/developers",
-    "/v1/skills",
-    "/v1/entities",
-    "/v1/reviews/",
     "/v1/trust/",
     "/runtime/",
 )
-# 「推进状态机 / 碰资金」的路径片段现在定义在 api.middleware.rate_limit 里共用 ——
-# runtime 网关要在**验签之后**用同一份规则按 runtime key 再判一次，两处口径必须
-# 一模一样（is_state_transition_write / write_limit_key_for_path）。
+STATE_TRANSITION_SEGMENTS = (
+    "/lock",
+    "/start",
+    "/submit",
+    "/fail",
+    "/partial",
+    "/regret",
+    "/dispute",
+    "/auto-arbitrate",
+    "/execute",
+    "/accept",
+    "/cancel",
+    "/retry",
+    "/requeue",
+    "/maintenance/",
+)
 
 # Prometheus metrics
 REQUEST_COUNT = Counter(
@@ -132,35 +123,14 @@ REQUEST_LATENCY = Histogram(
 async def lifespan(app: FastAPI):
     logger.info("karma_api_starting", env=settings.app_env)
     await init_db()
-    # 刹车状态落库（migration 0060 / services/runtime_safety.py）：启动时灌一次缓存，
-    # 之后后台定期重灌 —— 容器重建/OOM 重启不再把刹车弹回「关」。
-    from services import runtime_safety
-
-    await runtime_safety.hydrate_runtime_safety_mode()
-    safety_refresh_task = asyncio.create_task(runtime_safety.run_refresher_forever())
     # 注册 Bot 命令菜单
     try:
         from services.telegram.bot import setup_bot_commands
         result = setup_bot_commands()
         logger.info("bot_commands_registered", ok=result.get("ok"))
-    except Exception as exc:
+    except (ImportError, AttributeError) as exc:
         logger.warning("bot_commands_setup_failed", error=str(exc))
-    # The promise is "lock once, verify, and the money moves". On-chain the pull
-    # is permissionless once the challenge window has elapsed, so the only
-    # missing piece is a caller. With auto-settlement on, this process is it.
-    autosettle_task: asyncio.Task | None = None
-    if settings.escrow_autosettle_enabled:
-        from services.chain import escrow_autosettle
-
-        autosettle_task = asyncio.create_task(escrow_autosettle.run_forever())
     yield
-    safety_refresh_task.cancel()
-    with suppress(asyncio.CancelledError):
-        await safety_refresh_task
-    if autosettle_task is not None:
-        autosettle_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await autosettle_task
     logger.info("karma_api_shutdown")
 
 
@@ -202,8 +172,7 @@ def _is_sensitive_write(path: str, method: str) -> bool:
 
 
 def _is_state_transition_write(path: str) -> bool:
-    """同 api.middleware.rate_limit.is_state_transition_write（共用同一份规则）。"""
-    return is_state_transition_write(path)
+    return any(segment in path for segment in STATE_TRANSITION_SEGMENTS)
 
 
 def _route_group_for_path(path: str) -> str:
@@ -223,8 +192,6 @@ def _route_group_for_path(path: str) -> str:
         return "vouchers"
     if path.startswith("/v1/capacity"):
         return "capacity"
-    if path.startswith("/v1/escrow"):
-        return "settlement"
     if path.startswith("/v1/progress"):
         return "progress"
     return "other"
@@ -235,38 +202,9 @@ async def security_write_rate_limit_middleware(request: Request, call_next) -> R
     path = request.url.path
     method = request.method.upper()
     if _is_sensitive_write(path, method):
-        if path.startswith("/runtime/"):
-            # /runtime/* 上真正紧的额度在**验签之后**按 runtime key 判（见
-            # runtime_gateway.get_runtime_context）。中间件跑在鉴权之前，只认得了 socket
-            # peer，所以这一层退成不可伪造的粗兜底：否则同一台机器上跑多个 agent 会挤
-            # 同一个桶，而且 429 重试本身也在填桶 —— 越试越出不来。
-            limit_key = "runtime_preauth"
-        else:
-            limit_key = write_limit_key_for_path(path)
+        limit_key = "state_transition" if _is_state_transition_write(path) else "write_sensitive"
         try:
             await rate_limit(request, limit_key)
-        except HTTPException as exc:
-            return JSONResponse(
-                status_code=exc.status_code,
-                content={"detail": exc.detail},
-                headers=exc.headers or {},
-            )
-    return await call_next(request)
-
-
-@app.middleware("http")
-async def read_rate_limit_middleware(request: Request, call_next) -> Response:
-    """P2-11：读接口的兜底限流。
-
-    2026-09-17 复核：写路径（``SENSITIVE_WRITE_PREFIXES``）有限流，读路径基本没有 ——
-    也就是任何脚本都能不限速地枚举 /v1/* 。这里给 ``GET``/``HEAD`` 的 ``/v1/*``
-    加一档很宽的额度（600/60s，按 API key 或真实客户端 IP 分桶，见
-    ``rate_limit_bucket``），正常操作台/官网流量用不满。
-    """
-    path = request.url.path
-    if request.method.upper() in ("GET", "HEAD") and path.startswith("/v1/"):
-        try:
-            await rate_limit(request, "read")
         except HTTPException as exc:
             return JSONResponse(
                 status_code=exc.status_code,
@@ -317,10 +255,6 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
         api_key=request.headers.get("X-Karma-Api-Key"),
     )
     actor_label = actor_id or "anonymous"
-    # 记下真实客户端 IP（real_client_ip 只在 socket peer 是可信代理时才信转发头，
-    # 伪造不了）。401/429 事件带上它，运维才能一眼分清「一个客户端拿过期会话轮询」
-    # 和「一堆来源在撞密钥」—— 光看计数这两者长得一模一样（2026-10-13 线上实测）。
-    client_ip = real_client_ip(request)
     if _is_sensitive_write(path, method):
         security_audit_logger.info(
             "security_write_audit",
@@ -340,7 +274,6 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
                 "status": response.status_code,
                 "actor_id": actor_label,
                 "route_group": route_group,
-                "client_ip": client_ip,
             },
         )
     if path.startswith("/v1/") and response.status_code == 429:
@@ -352,7 +285,6 @@ async def security_audit_middleware(request: Request, call_next) -> Response:
                 "status": response.status_code,
                 "actor_id": actor_label,
                 "route_group": route_group,
-                "client_ip": client_ip,
             },
         )
     if path == "/v1/verify" and method == "POST":
@@ -391,47 +323,11 @@ _protected_dependencies = [Depends(require_auth_if_enabled)]
 _security_always_auth = [Depends(get_current_agent_id)]
 _rate_limited_rw = [Depends(require_auth_if_enabled), Depends(make_rate_limit_dep("write_sensitive"))]
 app.include_router(agents.router,     prefix="/v1/agents",     tags=["Agents"], dependencies=_protected_dependencies)
-# Agent pairing: the request/claim half has no session to check (the agent is
-# asking *for* one), the approve half is owner-authenticated like the console.
-app.include_router(
-    agent_pairing.public_router,
-    prefix="/v1/agent-pairing",
-    tags=["AgentPairing"],
-)
-app.include_router(
-    agent_pairing.owner_router,
-    prefix="/v1/agent-pairing",
-    tags=["AgentPairing"],
-    dependencies=_protected_dependencies,
-)
 app.include_router(contracts.router,  prefix="/v1/contracts",  tags=["Contracts"], dependencies=_protected_dependencies)
 app.include_router(identities.router, prefix="/v1/identities", tags=["Identities"], dependencies=_protected_dependencies)
 app.include_router(arbitration.router, prefix="/v1/arbitration", tags=["Arbitration"], dependencies=_protected_dependencies)
 app.include_router(responsibility.router, prefix="/v1/responsibility", tags=["Responsibility"], dependencies=_protected_dependencies)
 app.include_router(capacity.router,   prefix="/v1/capacity",   tags=["Capacity"], dependencies=_protected_dependencies)
-# 操作台的安全验证（2FA）：只认会话，密钥不回吐。
-app.include_router(
-    console_2fa.router,
-    prefix="/v1/console/2fa",
-    tags=["Console2FA"],
-    dependencies=_protected_dependencies,
-)
-# 操作台的能力位：只回调用者自己的布尔位，用来决定画不画某个工作面入口。
-# 真正的判定仍在那三道 require_* 上，这里不是第二道门（见 api/routes/console_caps.py）。
-app.include_router(
-    console_caps.router,
-    prefix="/v1/console/capabilities",
-    tags=["ConsoleCaps"],
-    dependencies=_protected_dependencies,
-)
-# 操作台的收益口径：验证者 / 仲裁员两页公示的收益标准（只读，任何已登录身份可读）。
-app.include_router(
-    console_policy.router,
-    prefix="/v1/console/economy-policy",
-    tags=["ConsolePolicy"],
-    dependencies=_protected_dependencies,
-)
-app.include_router(escrow.router,     prefix="/v1/escrow",     tags=["Escrow"],   dependencies=_protected_dependencies)
 app.include_router(vouchers.router,   prefix="/v1/vouchers",   tags=["Vouchers"], dependencies=_rate_limited_rw)
 app.include_router(
     payment_codes.router,
@@ -468,10 +364,8 @@ app.include_router(receipts.router,   prefix="/v1/receipts",   tags=["Receipts"]
 app.include_router(bundles.router,    prefix="/v1/bundles",    tags=["Bundles"], dependencies=_protected_dependencies)
 app.include_router(verify.router,     prefix="/v1/verify",     tags=["Verification"], dependencies=_protected_dependencies)
 app.include_router(settlement.router, prefix="/v1/settlement", tags=["Settlement"], dependencies=_rate_limited_rw)
-app.include_router(payment_ledger.router, prefix="/v1/payments", tags=["PaymentLedger"], dependencies=_protected_dependencies)
 app.include_router(bilateral.router, tags=["Bilateral"])
 app.include_router(reputation.router, prefix="/v1/reputation", tags=["Reputation"], dependencies=_protected_dependencies)
-app.include_router(reviews.router,   prefix="/v1/reviews",    tags=["Reviews"],   dependencies=_protected_dependencies)
 app.include_router(security.router,   prefix="/v1/security",   tags=["Security"], dependencies=_security_always_auth)
 app.include_router(admin_controls.router, prefix="/v1/admin", tags=["Admin"], dependencies=_security_always_auth + [Depends(make_rate_limit_dep("write_sensitive"))])
 app.include_router(openclaw.router, prefix="/v1/openclaw", tags=["OpenClaw"], dependencies=_protected_dependencies)
@@ -485,7 +379,6 @@ app.include_router(
 )
 # Public catalog — both buyer/seller agents read without auth
 app.include_router(standards.router, prefix="/v1/standards", tags=["Standards"])
-app.include_router(onboarding_authorization.router, prefix="/v1/onboarding-authorization", tags=["OnboardingAuthorization"], dependencies=_protected_dependencies)
 app.include_router(
     confirmations.router,
     prefix="/v1/confirmations",
@@ -528,15 +421,6 @@ app.include_router(
     tags=["TelegramMiniAppBot"],
     dependencies=[Depends(make_rate_limit_dep("write_sensitive"))],
 )
-# 跨平台聊天适配器（S6）—— Telegram / WhatsApp。
-# webhook 自带验签（Telegram secret header / WhatsApp X-Hub-Signature-256），
-# 所以这里不加 _protected_dependencies；/notify 用独立的静态 bearer。
-app.include_router(
-    chat_adapters.router,
-    prefix="/v1/adapters",
-    tags=["ChatAdapters"],
-    dependencies=[Depends(make_rate_limit_dep("write_sensitive"))],
-)
 app.include_router(
     identity_card.router,
     tags=["IdentityCard"],
@@ -559,61 +443,6 @@ app.include_router(
     prefix="/v1/identity/role-profiles",
     tags=["IdentityKyc"],
     dependencies=_protected_dependencies,
-)
-# KYC 合规撤销的对外留痕是**公开可读**的：与 `/v1/entities/{id}/revocations` 同口径，
-# 尽调方 / 消费者不该先注册账号才能查「这张子身份被撤销过几次、因为什么」。
-# 只读、无写入口，鉴权不适用。
-app.include_router(
-    identity_kyc.public_router,
-    prefix="/v1/identity/role-profiles",
-    tags=["IdentityKyc"],
-)
-app.include_router(
-    identity_verification.router,
-    prefix="/v1/identity",
-    tags=["IdentityVerification"],
-    dependencies=_protected_dependencies + [Depends(make_rate_limit_dep("write_sensitive"))],
-)
-# 第三方实名 / 活体服务商的回调是**服务商自己的服务器**打过来的，它没有、也不可能有
-# Karma 的访问令牌：鉴权只能是它自己的签名（push 型），或者「由我们带密钥回查」（pull 型）。
-# 所以这条不能挂 _protected_dependencies —— 挂了就等于谁都收不到核验结果。
-# 只保留写入限流，防止它被当成无成本端点刷。
-app.include_router(
-    identity_verification.provider_router,
-    prefix="/v1/identity",
-    tags=["IdentityProviderCallback"],
-    dependencies=[Depends(make_rate_limit_dep("write_sensitive"))],
-)
-app.include_router(
-    entity_verification.router,
-    prefix="/v1/identity",
-    tags=["EntityVerification"],
-    dependencies=_protected_dependencies + [Depends(make_rate_limit_dep("write_sensitive"))],
-)
-# 主体公开信息与技能目录是**公开可读**的：尽调方和访客不该先注册账号才能看。
-# 写接口的鉴权在各自 handler 里（resolve_actor_identity_id），写入限流由
-# security_write_rate_limit_middleware 按 /v1/skills 前缀兜住。
-app.include_router(
-    entity_verification.public_router,
-    prefix="/v1/entities",
-    tags=["Entities"],
-)
-app.include_router(
-    skill_market.router,
-    prefix="/v1/skills",
-    tags=["SkillMarket"],
-)
-# 开发者实名：本人读自己的要看身份，公开档案（已通过复核的）不需要登录。
-# 写接口鉴权在各 handler 里，写入限流由 /v1/developers 前缀兜住。
-app.include_router(
-    developers.router,
-    prefix="/v1/developers",
-    tags=["Developers"],
-)
-app.include_router(
-    developers.public_router,
-    prefix="/v1/developers",
-    tags=["Developers"],
 )
 
 
@@ -645,7 +474,6 @@ async def info():
         },
         "agent_onboarding_template": {
             "catalog": "/v1/standards/onboarding",
-            "authorization_flow": "/v1/standards/onboarding/authorization-flow",
             "connect": "/v1/agents/connect-from-template",
             "one_click": "/v1/agents/one-click-connect",
             "verticals": "/v1/agents/one-click-verticals",
@@ -672,19 +500,6 @@ async def info():
             "note": (
                 "Every connected agent publishes capability + responsibility + confirmation "
                 "boundaries so counterparties know what can auto-run vs needs owner Yes/No."
-            ),
-        },
-        "agent_pairing": {
-            "request": "/v1/agent-pairing/request",
-            "claim": "/v1/agent-pairing/claim",
-            "lookup": "/v1/agent-pairing/lookup",
-            "approve": "/v1/agent-pairing/approve",
-            "revoke": "/v1/agents/owner-revoke",
-            "doc": "docs/AGENT_PAIRING_V1.md",
-            "note": (
-                "Self-service connect: the agent opens a request and shows its owner a "
-                "user_code; the owner approves in the Console; the agent collects its "
-                "credentials once with pairing_code. The owner is never asked for a key."
             ),
         },
         "agent_p1_onboarding": {
@@ -737,17 +552,15 @@ async def info():
                 settings.settlement_requires_success_execution_receipt_for_seller_release
             ),
             "block_buyer_worker_payment_cycle": bool(settings.settlement_block_buyer_worker_payment_cycle),
-            # 前端「订单状态图」用它判断已完成的单什么时候从图上退场。
-            "dispute_window_hours": int(settings.dispute_window_hours or 0),
         },
     }
 
 
 # Serve Telegram MiniApp static files same-origin (must be mounted last so API
 # routes take precedence; html=True serves index.html at "/").
-from pathlib import Path  # noqa: E402
+from pathlib import Path
 
-from fastapi.staticfiles import StaticFiles  # noqa: E402
+from fastapi.staticfiles import StaticFiles
 
 _miniapp_dir = Path(__file__).resolve().parent.parent / "apps" / "telegram_miniapp"
 if _miniapp_dir.is_dir():

@@ -1,8 +1,3 @@
-> **[LEGACY CONSOLE REMOVED]** This document describes the old multi-page console
-> (Receiving / Payments / Agents / Evidence / Disputes / Trade / Dashboard / MVVS /
-> Verifier Explorer / OpenClaw Connect). Those pages were deleted; the public console
-> is now the single-page Cyber Console at `apps/console/pages/cyber/index.html`.
-
 # 公开测试网（Sepolia）上线签字页
 
 > **审计基线（Sentinel）：** Karma `main` @ `02eb650` · Karma2 `main` @ `e706031`  
@@ -19,7 +14,7 @@
 | 生产闸门 | ✅ 就绪 | `APP_ENV=production` 下 14+ 项强制，缺一项拒绝启动 |
 | 攻击回归 | ✅ 就绪 | KSA / KSA2 / KSA-TL / KSA-X402 / KSA-AP2 |
 | 历史压力/测试网 | ✅ 参考 | 2026-05-17：0 CRITICAL/HIGH；Sepolia 7/7 |
-| 运维前置 | 🟢 机器项全过 | RPC、合约、Redis、PostgreSQL、密钥、部署清单、值班主备已就绪（闸门 H1/H4/H5/H8 + E5b）；只剩测试钱包/按笔锚定等人工签字 |
+| 运维前置 | 🔴 待补 | RPC、合约、钱包、Redis、PostgreSQL、密钥、on-call |
 | 集成实测 | 🟡 待补 | OpenClaw MCP、EIP-712 真实钱包、`testnet_claw_manus_gate.sh` |
 
 **对外表述建议：** 「Sepolia 公开测试网（邀请制/文档化限制）」— 勿称「与主网生产等价的全自动商用」。
@@ -35,6 +30,9 @@ pip install -e ".[dev]"
 bash scripts/acceptance/full_chain_audit_gate.sh
 python3 scripts/acceptance/reverse_rule_audit.py
 ```
+
+Windows / 无 bash 环境等价入口：`python scripts/acceptance/offchain_gate.py`（含反向审计、Phase 1–3、安全回归、公开验收、生产闸门、manifest 校验、Console 最后一公里）。
+单步复跑：`--only phase1`（或 `1-9` 数字，逗号分隔多个），`--list` 查看全部步骤。
 
 | 步骤 | 内容 |
 |------|------|
@@ -98,16 +96,16 @@ bash scripts/acceptance/testnet_claw_manus_gate.sh
 | `RECEIPT_REQUIRE_SIGNATURE` | `true` |
 | `LEDGER_REQUIRE_PARTY_ACTOR` | `true` |
 | `SETTLEMENT_REQUIRE_PARTY_ACTOR` | `true` |
-| `VERIFIER_REQUIRE_NODE_SIGNATURE` | `true`（生产强制；节点写接口必须带节点钱包签名） |
 | `OPENCLAW_RELAX_DELIVERY_SIGNATURES` | `false` / 未设置 |
 | `OPENCLAW_LOCAL_PHASE1_AUTO_RELAX` | `false` |
 | `TRADE_LAUNCH_REQUIRE_EIP712` | `true` |
 | `KARMA_SIGNING_BACKEND` | `client_only` |
-| `X402_PAYMENT_BACKEND` | `sepolia`（非 `mock`）。**现状见 §4.1：生产跑的是 `env`，`tx_hash` 装的是 EIP-191 摘要，不是链上哈希** |
+| `X402_PAYMENT_BACKEND` | `sepolia`（非 `mock`） |
 
 校验：`APP_ENV=production bash scripts/production-prelaunch-gate.sh`
 
 **禁止** 将 `deploy/.env.local-openclaw.example` 原样用于公开测试网。
+`deploy/.env.testnet-stack.example` 与 `deploy/.env.testnet-claw-manus.example` 均已补齐生产闸门所需全部变量（含 `ARBITRATOR_ACTOR_IDS`、`CHAIN_ALLOW_HOT_WALLET_PAYER=false`、`TRADE_LAUNCH_REQUIRE_EIP712=true`、MinIO 非默认凭据），可被 `APP_ENV=production` 校验器直接通过；其中的 `replace-*` 占位值在上线前必须替换为真实强值。
 
 ---
 
@@ -115,35 +113,18 @@ bash scripts/acceptance/testnet_claw_manus_gate.sh
 
 | # | 条件 | 负责人 | ☐ |
 |---|------|--------|---|
-| 1 | Sepolia `TESTNET_RPC_URL` + `NONCUSTODIAL_AGENT_PAYMENT_ADDRESS` + ERC20 | 链上 | ✅ 2026-10-01（RPC + ERC20 + Bilateral 三件套已在，闸门 H1） |
-| 2 | 有余额的 buyer/seller 测试钱包（或 KMS） | 链上 | ✅ 2026-10-12（闸门 `H2` 改成**上链查余额**：结算钱包 + 库里 `a2a-buyer`/`a2a-seller` 的绑定钱包，3 个地址余额均 > 0。「够不够跑完一笔」仍由人签） |
-| 3 | 每笔 testnet launch 的 `CHAIN_ANCHOR_HASH`（64 hex） | 集成 | ✅ 2026-10-12（闸门 `H3` 机器判：`vouchers.chain_anchor_hash` 按笔写 + `validate_chain_anchor_for_mode` 在场，且发布环境里**没有**全局 `CHAIN_ANCHOR_HASH`） |
-| 4 | **Redis** 可用（生产限流 fail-closed） | SRE | ✅ 2026-10-01（闸门 H4：主机上 PONG） |
-| 5 | **PostgreSQL** 替代 SQLite | SRE | ✅ 2026-10-01（闸门 H5：`DATABASE_URL` 是 postgresql+asyncpg） |
-| 6 | `APP_SECRET_KEY`、`AUTH_API_KEYS` 强密钥 | 安全 | ✅ 2026-10-01（闸门 A2 / A4 / A4b / A4c，3 把独立钥匙） |
-| 7 | `SECURITY_ONCALL_PRIMARY` / `BACKUP` | 安全 | ✅ 2026-10-01（第二值班人已配，`E5b` 机器判「主备不是同一个人」） |
-| 8 | `deployment-manifest.json` + `verify-manifest.sh` 与链上一致 | 发布 | ✅ 2026-10-01（`scripts/acceptance/verify-manifest.sh`，8 项核对：清单/环境/链上三方对齐） |
-| 9 | Karma2 `CORE_VERSION.lock` == 公开 commit（若跑私有 verify） | 私仓 | ☐ 待签（闸门 `H9`；要有私有仓库读权限的人才判得了） |
-| 10 | OpenClaw MCP 注册 + 路径 A/B 至少一条人工签字 | 运营 | ☐ 待签（闸门 `H10`；MCP 要注册进用户自己的 OpenClaw，只能人做） |
-| 11 | OpenManus / `phase1_claw_manus_smoke.py` 成功 | 集成 | ☐ 待签（闸门 `H11`）。**要测试网栈**：生产口径实例 `/docs`=404、且 `TRADE_LAUNCH_REQUIRE_EIP712=true` + 归属闸门会挡住 smoke；见 [`../SECURITY_RELEASE_GATES.md`](../SECURITY_RELEASE_GATES.md) 的 Gate H 实测 |
-| 12 | （可选）`RUN_TESTNET_ONCHAIN=true` 链上 hybrid 冒烟 | 链上 | ☐ 待签（闸门 `H12`）。发布环境未设 `SETTLEMENT_MODE`，实测跑成 `offchain` —— 要在测试网栈上设 `hybrid` 才跑得了上链那一段 |
-
-### 4.1 `X402_PAYMENT_BACKEND`：一条还没定的资金安全项
-
-上表要求 `sepolia`，生产实际是 `env`。两者的差别不是「mock 还是真的」，而是**钱到底走不走链**：
-
-- `env` 模式只签一个 EIP-191 摘要，`tx_hash` 字段里装的其实是摘要 —— 名字在撒谎，
-  读的人会以为它是链上哈希。
-- 应用启动时的校验只拦 `mock`，`env` 静悄悄地过关。
-- 改真 `sepolia` 需要签名私钥 + 测试币余额（容器里现在两者都没有）。
-
-所以这一条**不假装已经完成**：要么配 `sepolia`（需要钥匙和余额），要么把 `tx_hash`
-改名成它实际的东西（摘要），并把文档里这句要求改对。**这是目前唯一一条需要拍板的
-资金安全项**，见 [`../SECURITY_RELEASE_GATES.md`](../SECURITY_RELEASE_GATES.md)。
-
-这 12 条现在不再是文档里的一排空方框：`scripts/public-beta-security-gate.sh` 的 **Gate H**
-逐条判定，能机器判的判（H1/H4/H5/H8），判不了的记 `HUMAN` 并写清楚去哪判，
-见 [`../SECURITY_RELEASE_GATES.md`](../SECURITY_RELEASE_GATES.md)。
+| 1 | Sepolia `TESTNET_RPC_URL` + `NONCUSTODIAL_AGENT_PAYMENT_ADDRESS` + ERC20 | 链上 | |
+| 2 | 有余额的 buyer/seller 测试钱包（或 KMS） | 链上 | |
+| 3 | 每笔 testnet launch 的 `CHAIN_ANCHOR_HASH`（64 hex） | 集成 | |
+| 4 | **Redis** 可用（生产限流 fail-closed） | SRE | |
+| 5 | **PostgreSQL** 替代 SQLite | SRE | |
+| 6 | `APP_SECRET_KEY`、`AUTH_API_KEYS` 强密钥 | 安全 | |
+| 7 | `SECURITY_ONCALL_PRIMARY` / `BACKUP` | 安全 | |
+| 8 | `deployment-manifest.json`（模板已就绪）+ `scripts/verify_manifest.py` / `scripts/verify-manifest.sh` 与链上一致 | 发布 | |
+| 9 | Karma2 `CORE_VERSION.lock` == 公开 commit（若跑私有 verify） | 私仓 | |
+| 10 | OpenClaw MCP 注册 + 路径 A/B 至少一条人工签字 | 运营 | |
+| 11 | OpenManus / `phase1_claw_manus_smoke.py` 成功 | 集成 | |
+| 12 | （可选）`RUN_TESTNET_ONCHAIN=true` 链上 hybrid 冒烟 | 链上 | |
 
 ---
 

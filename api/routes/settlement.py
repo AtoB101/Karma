@@ -1,19 +1,15 @@
 """Karma API — Settlement (public state endpoints)"""
 from __future__ import annotations
 
-import logging
-import math
-
-import structlog
 from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func, select, update
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.middleware.auth import resolve_agent_id_from_request
+from api.middleware.auth import resolve_agent_id_from_auth_headers
 from config.settings import settings
 from core.schemas import (
     ProgressConfirmationStatus,
@@ -24,46 +20,31 @@ from core.schemas import (
     VoucherStatus,
 )
 from core.settlement.engine import can_transition, canonical_task_status
-from db.models.orm import (
-    CapacityModel,
-    ProgressReceiptModel,
-    SettlementModel,
-    SettlementTransitionAuditModel,
-    VoucherModel,
-)
+from db.models.orm import ProgressReceiptModel, SettlementTransitionAuditModel, VoucherModel
 from db.session import get_db
 from db.stores.receipt_store import PostgresReceiptStore
 from db.stores.settlement_store import PostgresSettlementStore
-from services import atomic_ledger
 from services.capacity_resolution import apply_capacity_resolution, move_reserved_to_disputed
 from services.auto_arbitration_rules import adjust_auto_split_for_rules, build_auto_arbitration_context
 from services.runtime_safety import (
     assert_runtime_operation_allowed,
     audit_capacity_anchor_and_maybe_trip,
 )
-from services.security_monitoring import (
-    SecurityMonitoringEventType,
-    denial_class_for_guard_stage,
-    record_security_event,
-)
+from services.security_monitoring import SecurityMonitoringEventType, record_security_event
 from services.settlement_voucher import mark_voucher_used_if_linked
 from services.path_param_safety import validate_public_url_segment
 from services.settlement_party_access import (
     require_buyer,
     require_buyer_on_create,
     require_buyer_or_worker,
-    require_party_read,
     require_worker,
 )
 from services.settlement_cycle_guard import assert_lock_does_not_close_payment_cycle
 from services.settlement_receipt_release_guard import ensure_success_execution_receipt_before_seller_payout
 from services.task_contract_guard import ensure_task_contract_exists
-from services.text_safety import validate_json_strings_safe, validate_safe_storage_text_optional
-from services.settlement_amounts import assert_token_precision, normalize_amount, split_amounts
+from services.text_safety import validate_safe_storage_text_optional
 
 router = APIRouter()
-
-logger = logging.getLogger(__name__)
 
 
 async def _sync_payment_intents_after_settled(db: AsyncSession, task_id: str) -> None:
@@ -103,7 +84,6 @@ async def _release_profile_credits_if_bound(db: AsyncSession, state: Any) -> Non
 
 
 class CreateSettlementRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     task_id: str
     client_agent_id: str
     escrow_amount: float
@@ -111,34 +91,14 @@ class CreateSettlementRequest(BaseModel):
     voucher_id: str | None = None
     delivery_deadline_at: datetime | None = None
     profile_id: str | None = None
-    # 这一单属于哪种生意（服务类型）。单笔订单状态图按它选阶段表；带了 voucher 就
-    # 以 voucher 上锁定的那份为准 —— 那份是买方签过名的，不能被这次调用改掉。
-    progress_rule_spec: dict | None = Field(
-        default=None,
-        description="Service scene spec ({scene_id: ...}). Ignored when voucher_id is set.",
-    )
-
-    @field_validator("progress_rule_spec")
-    @classmethod
-    def _safe_progress_spec(cls, v: dict | None) -> dict | None:
-        if v is None:
-            return None
-        validate_json_strings_safe(v, field="progress_rule_spec")
-        scene = v.get("scene_id")
-        if scene is not None and (not isinstance(scene, str) or not scene.strip()):
-            raise ValueError("progress_rule_spec.scene_id must be a non-empty string")
-        return v
 
 
 class LockRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     worker_agent_id: str
-    profile_id: str | None = None
 
 
 class BuyerRejectRequest(BaseModel):
     """MVVS V1 — Buyer rejection with mandatory reason_code."""
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     reason_code: RejectionReason = Field(description="MVVS V1 standardized rejection code (required)")
     reason: str | None = Field(default=None, max_length=2000, description="Optional free-text detail")
 
@@ -151,7 +111,6 @@ class BuyerRejectRequest(BaseModel):
 
 
 class PartialSettlementRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     settled_value_percent: float = Field(gt=0.0, le=100.0)
     reason: str | None = None
 
@@ -164,7 +123,6 @@ class PartialSettlementRequest(BaseModel):
 
 
 class RegretRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     buyer_identity_id: str | None = None
     reason: str | None = None
     reason_code: RejectionReason | None = Field(
@@ -181,7 +139,6 @@ class RegretRequest(BaseModel):
 
 
 class DisputeRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     reason: str | None = None
     reason_code: RejectionReason | None = Field(
         default=None,
@@ -212,13 +169,9 @@ async def create_settlement(body: CreateSettlementRequest, request: Request, db:
 
     voucher_id = body.voucher_id
     delivery_deadline_at = body.delivery_deadline_at
-    progress_rule_spec = body.progress_rule_spec
+    progress_rule_spec = None
     profile_id = body.profile_id
     escrow_amount = body.escrow_amount
-    # 金额只允许有一个口径：链上能表示多少小数位，账上就只能有多少。
-    if not math.isfinite(float(escrow_amount)):
-        raise HTTPException(400, "escrow_amount must be a finite number")
-    assert_token_precision(escrow_amount, field="escrow_amount")
     if voucher_id:
         vrow = await db.get(VoucherModel, voucher_id)
         if not vrow:
@@ -315,16 +268,6 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
             "settlement must be moved to pending before lock (settlement_lock_requires_pending)",
         )
     state.worker_agent_id = body.worker_agent_id
-    if body.profile_id:
-        validate_public_url_segment("profile_id", body.profile_id)
-        from db.models.orm import IdentityRoleProfile
-
-        profile = await db.get(IdentityRoleProfile, body.profile_id)
-        if profile is None or profile.owner_identity_id != body.worker_agent_id:
-            raise HTTPException(
-                404, f"profile {body.profile_id} not found for worker {body.worker_agent_id}"
-            )
-        state.worker_profile_id = body.profile_id
     new_state = await _apply_transition(
         db=db,
         store=store,
@@ -339,22 +282,9 @@ async def lock_settlement(task_id: str, body: LockRequest, request: Request, db:
     # the Celery broker.
     escrow_wei = _settlement_escrow_wei(state)
     if escrow_wei > 0:
-        from services.chain import escrow_settlement
         from services.chain.settlement_adapter import settlement_router
-
-        # 托管通道（allowance escrow）在 _apply_transition 里已经**同步**把链上 bind 做完了，
-        # 这里再投一次 Celery 就是两条路各绑一次 —— 同一笔钱会在两个托管合约里各锁一份。
-        # 只有托管通道没开、走老的 KarmaBilateral 异步路时，才轮到下面这段。
-        if settlement_router.is_onchain() and not escrow_settlement.enabled():
+        if settlement_router.is_onchain():
             from worker.tasks import lock_and_bind_onchain
-
-            # 真上链绑定是异步做的（实测 20–30s），同步响应里给不出 onchain_binding_id。
-            # 以前这里直接返回一个 null，调用方分不清「正在绑」和「压根没绑」。
-            # 现在先把 onchain_status 置成 pending_bind 再投递，调用方据此轮询
-            # GET /v1/settlement/{task_id}，直到变成 bound（成功）或 failed（失败）。
-            # reconcile_onchain_status 这个 beat 任务会拿链上真相覆盖这一列。
-            new_state.onchain_status = "pending_bind"
-            await store.save(new_state)
             lock_and_bind_onchain.delay(task_id, escrow_wei)
     return new_state
 
@@ -491,17 +421,6 @@ async def submit_settlement(task_id: str, request: Request, db: AsyncSession = D
     require_worker(request, state)
     # P7 gate: if a delivery-verification session exists for physical scenes, must be VERIFIED
     _assert_p7_delivery_gate(task_id, state, stage="submit")
-    # MVVS V1 — 交付即开始算买方的确认窗口。窗口写进结算单（confirm_window_hours +
-    # confirm_deadline_at），到期还没人表态就由 POST /auto-confirm 兜底放款。
-    # 不写这两个字段的话，买方不表态的单子没有任何出口：既不能取消，唯一的超时兜底
-    # 又永远 409，钱会一直卡在托管里（F6 报告第 9 条）。
-    window_hours = int(getattr(settings, "settlement_confirm_window_hours", 0) or 0)
-    if window_hours > 0:
-        state.confirm_window_hours = window_hours
-        state.confirm_deadline_at = datetime.utcnow() + timedelta(hours=window_hours)
-    else:
-        state.confirm_window_hours = None
-        state.confirm_deadline_at = None
     out = await _apply_transition(
         db=db,
         store=store,
@@ -537,7 +456,7 @@ async def fail_settlement(task_id: str, request: Request, db: AsyncSession = Dep
     if not state:
         raise HTTPException(404)
     require_buyer_or_worker(request, state)
-    out = await _apply_transition(
+    return await _apply_transition(
         db=db,
         store=store,
         state=state,
@@ -546,73 +465,25 @@ async def fail_settlement(task_id: str, request: Request, db: AsyncSession = Dep
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
     )
-    # 取消也要把账上的可用额度还回去（F10-1）：授权码占住的 reserved 只在「结算完成」
-    # 或「授权码过期」时才释放，取消订单两条都不走 —— 买方会看着自己的额度被冻 7 天，
-    # 而链上明明还有钱。托管没启用时同样要还，所以放在这一层，不挂在链上那一步。
-    from services.settlement_voucher import cancel_voucher_reservation_for_task
-
-    await cancel_voucher_reservation_for_task(db, task_id)
-    return out
 
 
 @router.get("/{task_id}", response_model=SettlementState)
-async def get_settlement(task_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    """读结算状态。
-
-    P1-7：与合同／流转同口径 —— 结算里有金额、对手方与仲裁结果，此前任何身份
-    都能读。现在默认只有当事人（买/卖）或平台运维岗能读；
-    ``TASK_RECORDS_PUBLIC_READ=true`` 可恢复公开（产品决策开关）。
-    """
+async def get_settlement(task_id: str, db: AsyncSession = Depends(get_db)):
     validate_public_url_segment("task_id", task_id)
     store = PostgresSettlementStore(db)
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404)
-    parties = {state.client_agent_id}
-    if state.worker_agent_id:
-        parties.add(state.worker_agent_id)
-    await require_party_read(
-        db,
-        request,
-        {p for p in parties if p},
-        public_read=bool(settings.task_records_public_read),
-    )
-    from services.chain import escrow_settlement
-
-    if escrow_settlement.enabled():
-        try:
-            if await escrow_settlement.reconcile_task(db, task_id=task_id):
-                state = await store.get(task_id) or state
-        except Exception:  # 对账是读的附加动作，坏了也不能让读状态失败
-            logger.warning("escrow_settlement_reconcile_failed", exc_info=True)
     return state
 
 
 @router.get("/{task_id}/transitions", response_model=list[SettlementTransitionAudit])
 async def list_settlement_transitions(
     task_id: str,
-    request: Request,
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
 ):
-    """读结算流转审计。
-
-    P1-7：此前任何身份都能读别人的流转记录（含争议理由、金额）。现在默认只有
-    当事人（买/卖）或平台运维岗能读；``TASK_RECORDS_PUBLIC_READ=true`` 可公开。
-    """
     validate_public_url_segment("task_id", task_id)
-    state = await PostgresSettlementStore(db).get(task_id)
-    if state is None:
-        raise HTTPException(404, f"Settlement {task_id} not found")
-    parties = {state.client_agent_id}
-    if state.worker_agent_id:
-        parties.add(state.worker_agent_id)
-    await require_party_read(
-        db,
-        request,
-        {p for p in parties if p},
-        public_read=bool(settings.task_records_public_read),
-    )
     result = await db.execute(
         select(SettlementTransitionAuditModel)
         .where(SettlementTransitionAuditModel.task_id == task_id)
@@ -635,45 +506,6 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
     require_buyer(request, state)
     confirmed_claimed = await _confirmed_progress_percent(db, task_id)
     st = canonical_task_status(state.status)
-    settled_amount, refunded_amount = split_amounts(
-        state.escrow_amount, body.settled_value_percent
-    )
-
-    # 幂等重放（2026-09-20 实测新增）。背景：/partial 是一条「撤绑 → 重绑 → 划款」
-    # 的同步长事务，实测要 40s 以上，客户端很容易先超时。超时后客户端重试时，服务端
-    # 其实**已经执行完了**，但旧代码会甩一句 400 "requires delivered status"（因为状态
-    # 已经变成 settled），调用方既判断不出到底成没成，文案还指错了方向。
-    # 现在：同一个比例直接回 200 + 当前状态（答案就是「成了」）；比例不同回 409 并
-    # 明确告诉这一单已经按什么比例结完了。终局单同理，不再用中间态的文案糊弄。
-    if st == TaskStatus.SETTLED:
-        done_amount = round(float(state.released_amount or 0.0), 2)
-        done_refund = round(float(state.refunded_amount or 0.0), 2)
-        if abs(done_amount - settled_amount) <= 0.01:
-            return state
-        raise HTTPException(
-            409,
-            {
-                "error": "already_settled",
-                "detail": (
-                    "this settlement is already settled and cannot be re-split; "
-                    f"released={done_amount} refunded={done_refund}"
-                ),
-                "released_amount": done_amount,
-                "refunded_amount": done_refund,
-            },
-        )
-    if st in {TaskStatus.CANCELLED, TaskStatus.REFUNDED}:
-        raise HTTPException(
-            409,
-            {
-                "error": "settlement_not_open_for_partial",
-                "detail": (
-                    f"settlement is {st.value}; "
-                    "partial settlement is not applicable to a finalized settlement"
-                ),
-            },
-        )
-
     # P0-9: splits must not exceed confirmed claimed liability; without any confirmed progress,
     # partial release is only allowed after formal delivery (submit) so settlement does not skip
     # the delivered checkpoint from in_progress.
@@ -688,9 +520,11 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
             raise HTTPException(
                 400,
                 "partial settlement with no confirmed progress requires delivered status "
-                f"(POST /v1/settlement/{{task_id}}/submit first); this settlement is {st.value}. "
-                "Either submit the delivery first, or confirm progress receipts up to the intended split.",
+                "(POST /v1/settlement/{task_id}/submit first); otherwise confirm progress receipts "
+                "up to the intended split",
             )
+    settled_amount = round(state.escrow_amount * body.settled_value_percent / 100.0, 2)
+    refunded_amount = round(state.escrow_amount - settled_amount, 2)
 
     await ensure_success_execution_receipt_before_seller_payout(db, task_id, settled_amount=settled_amount)
 
@@ -707,8 +541,6 @@ async def partial_settlement(task_id: str, body: PartialSettlementRequest, reque
         reason="manual partial settlement applied",
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
-        # 买方本人点的放款：链上打 buyerConfirm，划款不等争议窗口（v4）。
-        buyer_confirmed=True,
     )
 
     await apply_capacity_resolution(
@@ -737,7 +569,8 @@ async def regret_settlement(task_id: str, body: RegretRequest, request: Request,
     if body.buyer_identity_id is not None and body.buyer_identity_id != state.client_agent_id:
         raise HTTPException(403, "buyer_identity_id does not match settlement buyer (client_agent_id)")
     confirmed_percent = await _confirmed_progress_percent(db, task_id)
-    settled_amount, refunded_amount = split_amounts(state.escrow_amount, confirmed_percent)
+    settled_amount = round(state.escrow_amount * confirmed_percent / 100.0, 2)
+    refunded_amount = round(state.escrow_amount - settled_amount, 2)
 
     await ensure_success_execution_receipt_before_seller_payout(db, task_id, settled_amount=settled_amount)
 
@@ -757,8 +590,6 @@ async def regret_settlement(task_id: str, body: RegretRequest, request: Request,
         reason="buyer regret settlement",
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
-        # 买方本人点的放款：链上打 buyerConfirm，划款不等争议窗口（v4）。
-        buyer_confirmed=True,
     )
 
     await apply_capacity_resolution(
@@ -869,30 +700,18 @@ async def buyer_accept_settlement(
                     consume=True,
                 )
             except ConfirmationPolicyError as exc:
-                try:
-                    sess = create_confirmation_session(
-                        scene_id=settle_scene,
-                        role="buyer",
-                        step="buyer_accept_settle",
-                        owner_agent_id=state.client_agent_id,
-                        context={
-                            "amount": float(state.escrow_amount or 0),
-                            "currency": "USDC",
-                        },
-                        interaction_ref=f"settle:{task_id}",
-                        policy_auto_allowed=False,
-                    )
-                except ConfirmationPolicyError as session_exc:
-                    # 场景没登记 / 策略读不到：这是「你调错了」而不是「服务器坏了」。
-                    # 之前这条会一路冒到 ASGI，用户看到 500，完全不知道差在哪。
-                    logger.warning(
-                        "settle_confirmation_session_failed",
-                        extra={"task_id": task_id, "scene_id": settle_scene, "detail": str(session_exc)},
-                    )
-                    raise HTTPException(
-                        409,
-                        f"这一单需要主人确认，但确认场景 {settle_scene!r} 没有登记：{session_exc}",
-                    ) from session_exc
+                sess = create_confirmation_session(
+                    scene_id=settle_scene,
+                    role="buyer",
+                    step="buyer_accept_settle",
+                    owner_agent_id=state.client_agent_id,
+                    context={
+                        "amount": float(state.escrow_amount or 0),
+                        "currency": "USDC",
+                    },
+                    interaction_ref=f"settle:{task_id}",
+                    policy_auto_allowed=False,
+                )
                 raise HTTPException(
                     403,
                     {
@@ -915,7 +734,7 @@ async def buyer_accept_settlement(
         db, task_id, settled_amount=float(state.escrow_amount)
     )
 
-    state.released_amount = normalize_amount(state.escrow_amount)
+    state.released_amount = round(state.escrow_amount, 2)
     state.refunded_amount = 0.0
     state.arbitration_notes = "buyer accepted delivery — full settlement to seller"
     state.released_at = datetime.utcnow()
@@ -928,8 +747,6 @@ async def buyer_accept_settlement(
         reason="buyer accepted delivered work",
         route_path=str(request.url.path),
         actor_id=_resolve_actor_id(request),
-        # 买方本人点的放款：链上打 buyerConfirm，划款不等争议窗口（v4）。
-        buyer_confirmed=True,
     )
     await apply_capacity_resolution(
         db=db,
@@ -995,71 +812,19 @@ async def auto_confirm_settlement(
     state = await store.get(task_id)
     if not state:
         raise HTTPException(404, f"Settlement {task_id} not found")
-    # 授权先于状态：没资格的人不该靠 409 文案推算出这笔单子的交付时间。
-    require_buyer_or_worker(request, state)
     if canonical_task_status(state.status) != TaskStatus.DELIVERED:
         raise HTTPException(409, f"auto-confirm requires delivered, got {state.status.value}")
     if state.confirm_window_hours is None:
-        raise HTTPException(
-            409,
-            "this settlement has no confirm window (confirm_window_hours is null); "
-            "the buyer has to accept or reject it explicitly",
-        )
+        raise HTTPException(409, "confirm_window_hours not set")
     now = datetime.utcnow()
     if state.confirm_deadline_at is None and state.updated_at:
-        # 老单兜底：交付时还没写 deadline 的行，用 updated_at 现算一次。
         state.confirm_deadline_at = state.updated_at + timedelta(hours=state.confirm_window_hours)
     if state.confirm_deadline_at and now < state.confirm_deadline_at:
         remaining = (state.confirm_deadline_at - now).total_seconds() / 3600
         raise HTTPException(409, f"confirm window not expired — {remaining:.1f}h remaining")
-    await audit_capacity_anchor_and_maybe_trip(db=db)
-    return await _auto_confirm_release(
-        db,
-        store=store,
-        state=state,
-        now=now,
-        actor_id=_resolve_actor_id(request),
-        route_path=str(request.url.path),
-    )
-
-
-# 后台兜底放款的操作者标识。链上 finalizeSettlement 是 permissionless 的，账上也得
-# 有个说得清的 actor：推这一下的不是买卖任何一方按的按钮，是「交付 + 验证通过 +
-# 买方沉默到期」这条规则本身。
-AUTO_CONFIRM_ACTOR_ID = "system:auto-confirm"
-# 这两类场景走的是 OWNER_CONFIRM：主人没点头，任何超时都不许替他把钱付出去。
-AUTO_CONFIRM_FORBIDDEN_SCENES = frozenset({"financial_services", "healthcare_medical"})
-
-#: 兜底放款自己的日志出口。这个路由模块用的是 stdlib logging，而进程只把 structlog
-#: 接进了日志管道 —— stdlib 的 INFO 打不出来。被按住不放的那一单必须看得见，
-#: 否则「钱为什么没到卖方」在生产里查无此据。
-_autoconfirm_log = structlog.get_logger("karma.settlement_auto_confirm")
-#: 同一单被同一句话按住时只报一次：一轮 15 秒，重复刷会把真正的问题淹掉。
-_held_reasons: dict[str, str] = {}
-
-
-async def _auto_confirm_release(
-    db: AsyncSession,
-    *,
-    store: PostgresSettlementStore,
-    state: SettlementState,
-    now: datetime,
-    actor_id: str | None,
-    route_path: str = "/v1/settlement/{task_id}/auto-confirm",
-) -> SettlementState:
-    """买方沉默到期的唯一出口：DELIVERED -> AUTO_CONFIRMED -> SETTLED，钱划给卖方。
-
-    规则（MVVS V1，买卖双方对表用同一份）：
-      * 买方确认 + 验证通过   -> 立即放行，不开窗口（走 buyer-accept，不经过这里）；
-      * 买方没确认            -> 交付时写入的 confirm_window_hours / confirm_deadline_at；
-      * 窗口到期 + 验证层通过  -> 自动放行（这个函数）；
-      * 验证层没过 / 高风险场景 -> 409，钱一步都不许动。
-
-    HTTP 路由和后台兜底（``auto_confirm_expired_settlements``）共用这一份，
-    免得两条路各写一套、只有能被手点的那条是对的。
-    """
-    task_id = state.task_id
+    require_buyer_or_worker(request, state)
     assert_runtime_operation_allowed("new_settlement")
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     # P7/P8: auto-confirm still requires delivery verification when session/scene demands it
     _assert_p7_delivery_gate(task_id, state, stage="auto-confirm")
     scene_for_auto = _scene_id_from_settlement(state) or "api_tool_call"
@@ -1071,7 +836,10 @@ async def _auto_confirm_release(
         delivery_verified=True,
     )
     # High-risk / OWNER_CONFIRM delayed scenes must not silently settle via this path
-    if not auto_dec.get("allowed") and scene_for_auto in AUTO_CONFIRM_FORBIDDEN_SCENES:
+    if not auto_dec.get("allowed") and scene_for_auto in {
+        "financial_services",
+        "healthcare_medical",
+    }:
         raise HTTPException(
             409,
             {
@@ -1080,31 +848,19 @@ async def _auto_confirm_release(
                 "detail": auto_dec.get("reason_zh"),
             },
         )
-    # 放款的前置条件（交付验证 + 成功执行回执）在**推状态机之前**先查掉。推到
-    # AUTO_CONFIRMED 之后才发现没有回执的话，这个状态没有任何自动流程会再推进它
-    # （auto_confirm_expired_settlements 只扫 DELIVERED），买方被占住的授权额会变成死账；
-    # 而且那条拒绝还会被记成「链上腿失败」，把告警口径和自动刹车一起带偏。
-    # 详见 services/chain/escrow_settlement.assert_release_preflight。
-    from services.chain import escrow_settlement as _escrow_preflight
-
-    if _escrow_preflight.enabled():
-        try:
-            await _escrow_preflight.assert_release_preflight(db, task_id=task_id)
-        except _escrow_preflight.EscrowSettlementError as exc:
-            raise HTTPException(exc.status, exc.message) from exc
     state.arbitration_notes = f"auto-confirmed after {state.confirm_window_hours}h window"
     state.updated_at = now
     state = await _apply_transition(db=db, store=store, state=state,
         target_status=TaskStatus.AUTO_CONFIRMED,
         reason=f"confirm window ({state.confirm_window_hours}h) expired",
-        route_path=route_path, actor_id=actor_id)
-    state.released_amount = normalize_amount(state.escrow_amount)
+        route_path=str(request.url.path), actor_id=_resolve_actor_id(request))
+    state.released_amount = round(state.escrow_amount, 2)
     state.refunded_amount = 0.0
     state.released_at = now
     state = await _apply_transition(db=db, store=store, state=state,
         target_status=TaskStatus.SETTLED,
         reason="auto-confirmed → settled",
-        route_path=route_path, actor_id=actor_id)
+        route_path=str(request.url.path), actor_id=_resolve_actor_id(request))
     await apply_capacity_resolution(db=db, buyer_identity_id=state.client_agent_id,
         escrow_amount=state.escrow_amount, settled_amount=state.escrow_amount, refunded_amount=0.0)
     await _release_profile_credits_if_bound(db, state)
@@ -1129,108 +885,6 @@ async def _auto_confirm_release(
             f"{state.arbitration_notes or ''}; p8_attestation={p8_attest.get('attestation_id')}"
         ).strip("; ")
     return state
-
-
-def auto_confirm_deadline(state: SettlementState) -> datetime | None:
-    """这一单的买方确认截止时间；None = 这一单没有窗口，只能由人显式表态。"""
-    hours = int(state.confirm_window_hours or 0)
-    if hours <= 0:
-        return None
-    if state.confirm_deadline_at is not None:
-        return state.confirm_deadline_at
-    if state.updated_at is None:
-        return None
-    # 老单兜底：交付时还没写 deadline 的行，用 updated_at 现算一次（和路由里同一口径）。
-    return state.updated_at + timedelta(hours=hours)
-
-
-async def _rollback_after_auto_confirm_failure(db: AsyncSession, task_id: str) -> None:
-    """一单兜底失败后，把它可能留下的半截写退掉，别带进下一单的事务。
-
-    原来是靠 ``db.begin_nested()`` 的 savepoint 保证的；那个 savepoint 和
-    ``_apply_transition`` 里「动链前先 commit」互相打架（见调用处的长注释），只能改成
-    显式 rollback。``state`` 是 ``PostgresSettlementStore._from_row`` 拷出来的 pydantic
-    对象、不挂在 session 上，rollback 不会把它读成失效对象。
-    """
-    try:
-        await db.rollback()
-    except Exception:  # noqa: BLE001 - 连接已经坏掉时，清理不该再炸一次
-        _autoconfirm_log.warning(
-            "settlement_auto_confirm_rollback_failed", task_id=task_id
-        )
-
-
-async def auto_confirm_expired_settlements(
-    db: AsyncSession,
-    *,
-    limit: int | None = None,
-    now: datetime | None = None,
-) -> list[str]:
-    """后台兜底：交付后买方沉默超过确认窗口、且验证层已经通过的单子，自动放行。
-
-    没有它，``POST /auto-confirm`` 就只是一扇没人敲的门：买方不表态，钱永远卡在
-    托管里，卖方也拿不到本该拿到的款。这里只负责「到期 + 验证通过」这一条，
-    验证层没过的会被 ``_auto_confirm_release`` 挡下（409），原样留给争议/仲裁那条路。
-    """
-    store = PostgresSettlementStore(db)
-    current = now or datetime.utcnow()
-    confirmed: list[str] = []
-    for state in await store.list_by_status(TaskStatus.DELIVERED):
-        if limit is not None and len(confirmed) >= limit:
-            break
-        deadline = auto_confirm_deadline(state)
-        if deadline is None or current < deadline:
-            continue
-        try:
-            # 这里不能再用 ``db.begin_nested()``：``_apply_transition`` 现在会在动链
-            # 之前先把这一步落库并 commit（2026-10-01 死锁根因，见那边的注释）。在
-            # savepoint 里再 commit，出口时 context manager 会对着一个已经结束的事务
-            # 操作，直接抛「Can't operate on closed transaction inside context
-            # manager」，再被下面的 except 吞掉 —— 整轮兜底放款集体哑火。
-            #
-            # 也不能为了隔离退回「一单一个 savepoint」：Postgres 里 RELEASE SAVEPOINT
-            # 并不释放行锁，整轮 tick 会变成一个横跨所有链上等待的大事务，正是死锁那条
-            # 长边。每单的原子性改由下面 except 里的 rollback 兜底：出事的这一单不留半截
-            # 写进下一单的事务。
-            await _auto_confirm_release(
-                db,
-                store=store,
-                state=state,
-                now=current,
-                actor_id=AUTO_CONFIRM_ACTOR_ID,
-                route_path="/internal/auto-confirm",
-            )
-        except HTTPException as exc:
-            # 验证层没通过（没有成功回执 / 交付验证没过）/ 高风险场景不许兜底：
-            # 钱不动，下一轮再看 —— 但要让运维看见是谁把它按住了。
-            reason = f"{exc.status_code}:{str(exc.detail)[:200]}"
-            if _held_reasons.get(state.task_id) != reason:
-                _held_reasons[state.task_id] = reason
-                _autoconfirm_log.warning(
-                    "settlement_auto_confirm_held",
-                    task_id=state.task_id,
-                    status=exc.status_code,
-                    detail=str(exc.detail)[:300],
-                )
-            await _rollback_after_auto_confirm_failure(db, state.task_id)
-            continue
-        except Exception as exc:  # noqa: BLE001 - 一单卡住不许拖住其他单
-            _autoconfirm_log.warning(
-                "settlement_auto_confirm_failed",
-                task_id=state.task_id,
-                error=str(exc),
-            )
-            await _rollback_after_auto_confirm_failure(db, state.task_id)
-            continue
-        _held_reasons.pop(state.task_id, None)
-        confirmed.append(state.task_id)
-        _autoconfirm_log.info(
-            "settlement_auto_confirmed",
-            task_id=state.task_id,
-            window_hours=int(state.confirm_window_hours or 0),
-            actor_id=AUTO_CONFIRM_ACTOR_ID,
-        )
-    return confirmed
 
 
 @router.post("/{task_id}/buyer-reject", response_model=SettlementState)
@@ -1344,246 +998,10 @@ async def auto_arbitrate(task_id: str, request: Request, db: AsyncSession = Depe
 
 
 def _resolve_actor_id(request: Request) -> str | None:
-    # Runtime-Gateway-delegated calls carry their verified actor on request.state.
-    return resolve_agent_id_from_request(request)
-
-
-async def _fill_in_deferred_bind_for_cancel(db: AsyncSession, state: SettlementState) -> None:
-    """取消这条出口的补绑：**自成交的空头单**跳过，其余照旧。
-
-    自成交的单永远绑不上 —— 链上 ``SameOwner()`` 只看钱包地址，是决定性的，不是抖动。
-    原来的 ``_fill_in_deferred_bind`` 对它只会 409，把「取消」这条唯一不碰钱的出口也堵死：
-    线上那条脏单（settlement 97f0dc0e，2026-10-13）就是这么永久停在 ``in_progress`` 的。
-    它从未绑过、钱一分没动，取消本来就不需要 binding —— 跳过补绑，让状态机走到
-    ``cancel_for_task``（对本单返回 ``unbound``，链上一笔都不发）。
-
-    只在 ``pending_bind`` 上判：已经绑成的单走不到这里（接单那一刻自成交闸就把 bind 挡了），
-    所以这里判到的只会是脏数据。
-    """
-    from services.chain import escrow_settlement
-
-    if (
-        (getattr(state, "onchain_status", None) or "").strip().lower()
-        == escrow_settlement.PENDING_BIND
-    ):
-        hit = await escrow_settlement.detect_self_dealing(
-            db,
-            buyer_identity_id=state.client_agent_id,
-            seller_identity_id=state.worker_agent_id,
-        )
-        if hit is not None:
-            logger.warning(
-                "escrow_settlement_cancel_self_deal_unbound",
-                extra={"task_id": state.task_id, "reason": hit[0]},
-            )
-            return
-    await escrow_settlement.materialize_pending_bind(db, task_id=state.task_id)
-
-
-async def _sync_escrow_settlement(
-    *,
-    db: AsyncSession,
-    state: SettlementState,
-    target_status: TaskStatus,
-    buyer_confirmed: bool = False,
-) -> None:
-    """把状态机的两个关键点接到链上（详见 services/chain/escrow_settlement.py）。
-
-    接单（→ ACCEPTED）  ：买方承诺 + 卖方质押在链上 bind 成一个 binding。
-                         bind 本身**不在请求路径里等** —— 只落一个 ``pending_bind``
-                         标记，autosettle 的 ``bind_due`` 随后补上（并发下单时
-                         同步等一个 Sepolia 区块会把整条 API 拖成 504）。
-    结算（→ SETTLED）   ：提交结算、打开挑战期，钱由 autosettle 从买方钱包直划卖方。
-    全额退款（REFUNDED）：卖方违约 → 罚没质押划给买方（submit 开窗 + autosettle 到点罚没）。
-    取消（CANCELLED）   ：撤销 binding，把买方被占住的授权放回去，钱一步没动。
-    争议（→ DISPUTED）  ：链上把这一单钉成 DISPUTED —— 钱一步没动，但当事方从此不能
-                        自己 cancelBinding（被裁定违约的一方不能趁仲裁把质押预留放掉）。
-
-    链上没落定，业务状态就不许往前走 —— 这一层存在的意义就是让「已结算」在链上
-    有对应的钱，而不是数据库里的一个数字。托管未启用时整段是空操作。
-
-    ``buyer_confirmed`` 只有买方本人表态的那几条路会传 True（验收 / 部分结算 /
-    买方让步结算）：验证已经过了、买方也点了头，链上就打一笔 ``buyerConfirm``，
-    划款不必再等争议窗口（v4）。
-    """
-    from services.chain import escrow_settlement
-
-    if not escrow_settlement.enabled():
-        return
-    status = canonical_task_status(target_status)
-    try:
-        if status == TaskStatus.ACCEPTED:
-            await escrow_settlement.bind_for_task_deferred(
-                db,
-                task_id=state.task_id,
-                buyer_identity_id=state.client_agent_id,
-                seller_identity_id=state.worker_agent_id,
-                amount_usdc=float(state.escrow_amount or 0.0),
-            )
-            return
-
-        async def _fill_in_deferred_bind() -> None:
-            """动链之前先把延迟的绑定补实。
-
-            接单那一步现在只落 ``pending_bind`` 标记（见 ``bind_for_task_deferred``），
-            所以 submit / slash / cancel / dispute 这些**真的会碰那条绑定**的动作，
-            进来第一件事是把它补成真绑定 —— 否则链上会对着一条不存在的绑定干活。
-            ``materialize_pending_bind`` 幂等：不是待绑定的单子返回 None，不动任何东西。
-
-            注意这里**只在这四个状态**里调，不能提前到函数顶上：
-            ``fulfill_intent`` 接单之后立刻把单子推到 ``IN_PROGRESS``，而
-            ``IN_PROGRESS`` 是白名单外的状态 —— 要是它也补绑，就等于接单当场又同步
-            等一个区块，F1 直接作废（2026-09-30 实测 place-order 又变成 18.5s）。
-            """
-            await escrow_settlement.materialize_pending_bind(db, task_id=state.task_id)
-
-        if status == TaskStatus.DISPUTED:
-            await _fill_in_deferred_bind()
-            # 争议不动钱，但必须在链上把「谁都别想自己走掉」立起来：否则被裁定违约的
-            # 一方可以在仲裁期间自己撤掉绑定，等罚没下来只剩 WrongBindingState。
-            await escrow_settlement.mark_dispute_for_task(db, task_id=state.task_id)
-        elif status == TaskStatus.SETTLED:
-            await _fill_in_deferred_bind()
-            await escrow_settlement.submit_for_task(
-                db,
-                task_id=state.task_id,
-                released_amount=state.released_amount,
-                buyer_confirmed=buyer_confirmed,
-            )
-        elif status == TaskStatus.REFUNDED:
-            # 全额退款 = 这次交付被裁定为一文不值 = 卖方违约：质押划给买方。
-            await _fill_in_deferred_bind()
-            await escrow_settlement.slash_for_task(db, task_id=state.task_id)
-        elif status == TaskStatus.CANCELLED:
-            # 自成交的空头单跳过补绑（详见 _fill_in_deferred_bind_for_cancel）：它永远
-            # 绑不上，取消是唯一不需要 binding 的出口，别让补绑把它一起堵死。
-            await _fill_in_deferred_bind_for_cancel(db, state)
-            await escrow_settlement.cancel_for_task(db, task_id=state.task_id)
-    except escrow_settlement.EscrowSettlementError as exc:
-        logger.warning(
-            "escrow_settlement_gate_blocked",
-            extra={"task_id": state.task_id, "target": status.value, "detail": exc.message},
-        )
-        raise HTTPException(exc.status, exc.message) from exc
-
-
-async def _snapshot_settlement_row(
-    db: AsyncSession, task_id: str
-) -> dict[str, Any] | None:
-    """记下结算行「本步改动前」的样子。
-
-    链上 I/O 现在跑在事务外面（见 `_apply_transition`），那一步失败时要能把业务状态
-    原样退回来，所以先在这里取一份快照。**只读、不取行锁** —— 加锁反而会把
-    `capacity <-> settlements` 那个环又拉回来。
-    """
-    row = (
-        await db.execute(select(SettlementModel).where(SettlementModel.task_id == task_id))
-    ).scalars().first()
-    if row is None:
-        return None
-    # 只取 ORM 上真有的列（`rejection_reason_code` 只活在 SettlementState 上，
-    # 不是 settlements 表的列 —— 直接 getattr 会 AttributeError）。
-    return {
-        name: getattr(row, name, None)
-        for name in (
-            "status",
-            "released_amount",
-            "refunded_amount",
-            "released_at",
-            "arbitration_notes",
-            "dispute_reason",
-        )
-    }
-
-
-async def _release_dispute_freeze_after_revert(
-    db: AsyncSession, *, buyer_identity_id: str | None, escrow_amount: float | None
-) -> None:
-    """开争议的入口在状态机之前就把 reserved 冻结成了 disputed。
-
-    链上那一步没落定、业务状态又退回去了，这份冻结也必须一起撤回 —— 否则账上会留
-    一笔没有任何争议对应的冻结，而 align_disputed_settlements 只认 status == disputed
-    的单子，永远补不回来（用户会看到「争议冻结 N」但那一单根本不在争议里）。
-    """
-    amount = float(escrow_amount or 0.0)
-    if not buyer_identity_id or amount <= 1e-9:
-        return
-    try:
-        await atomic_ledger.apply_delta_or_raise(
-            db,
-            CapacityModel,
-            "identity_id",
-            buyer_identity_id,
-            {"disputed_credits": -amount, "reserved_credits": amount},
-            guards=[(lambda C, _need=amount: C.disputed_credits + 1e-9 >= _need)],
-            message="dispute freeze changed concurrently; retry",
-        )
-    except Exception:  # noqa: BLE001 - 撤回失败不能把真正的链上错误吞掉
-        logger.warning("settlement_dispute_unfreeze_after_revert_failed", exc_info=True)
-
-
-async def _revert_chain_rejected_transition(
-    *,
-    db: AsyncSession,
-    prior: dict[str, Any] | None,
-    state: SettlementState,
-    from_status: TaskStatus,
-    target_status: TaskStatus,
-    reason: str,
-    route_path: str,
-    actor_id: str | None,
-) -> None:
-    """链上闸门没过：把已经落库的业务状态退回原样。
-
-    `_apply_transition` 现在先把这一步落库、放掉行锁，再去动链；链上失败时那一行
-    已经被提交了。不退回来的话，操作台会声称一笔链上根本不认的结算（钱没动，页面
-    却写「已结算」）。退回来之后语义与从前一致：接口报错、状态原地不动、交易可重试。
-
-    链上真落了半路也不怕：`submit_for_task` 里有 `adopt_chain_finalizing`，autosettle
-    的 `reconcile_from_chain` / `reap_stranded` 最终会把台账对齐到链上事实。
-    """
-    if prior is None:
-        return
-    try:
-        await db.rollback()
-        await db.execute(
-            update(SettlementModel)
-            .where(SettlementModel.task_id == state.task_id)
-            .values(**prior)
-        )
-        await db.commit()
-    except Exception:  # noqa: BLE001 - 还原失败也不能把真正的链上错误吞掉
-        logger.warning("settlement_transition_rollback_failed", exc_info=True)
-        try:
-            await db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
-        return
-    if canonical_task_status(target_status) == TaskStatus.DISPUTED:
-        # 开争议那条路在状态机之前就冻了额度，状态退回去，冻结也得退。
-        await _release_dispute_freeze_after_revert(
-            db, buyer_identity_id=state.client_agent_id, escrow_amount=state.escrow_amount
-        )
-        await db.commit()
-    try:
-        await _record_transition_audit(
-            db=db,
-            state=state,
-            from_status=from_status,
-            to_status=target_status,
-            transition_allowed=False,
-            guard_stage="chain",
-            reason=f"链上闸门拒绝了这一步（{reason}）：业务状态已退回，交易可重试",
-            route_path=route_path,
-            actor_id=actor_id,
-        )
-        await db.commit()
-    except Exception:  # noqa: BLE001 - 审计写不上不影响主流程
-        logger.warning("settlement_chain_reject_audit_failed", exc_info=True)
-        try:
-            await db.rollback()
-        except Exception:  # noqa: BLE001
-            pass
+    return resolve_agent_id_from_auth_headers(
+        authorization=request.headers.get("authorization"),
+        api_key=request.headers.get("x-karma-api-key"),
+    )
 
 
 async def _apply_transition(
@@ -1595,7 +1013,6 @@ async def _apply_transition(
     reason: str,
     route_path: str,
     actor_id: str | None,
-    buyer_confirmed: bool = False,
 ) -> SettlementState:
     from_status = state.status
     if not can_transition(from_status, target_status):
@@ -1613,8 +1030,6 @@ async def _apply_transition(
         )
         raise HTTPException(409, detail)
 
-    # 链上 I/O 会被放到下面的事务之外。那一步失败时要能把业务状态退回来，先取快照。
-    prior = await _snapshot_settlement_row(db, state.task_id)
     state.status = target_status
     state.updated_at = datetime.utcnow()
     try:
@@ -1645,39 +1060,7 @@ async def _apply_transition(
         route_path=route_path,
         actor_id=actor_id,
     )
-    # ── 链上 I/O 不许待在事务里（2026-10-01 死锁根因）────────────────────────
-    # 这里原来是「在同一个事务里等链上回执」：submitSettlement / buyerConfirm 在
-    # Sepolia 上一等就是 40~100s。而这期间刚拿到的 settlements 行锁（store.save）
-    # 和调用方在进来之前拿的 capacity 行锁（开争议时的 move_reserved_to_disputed）
-    # 都还攥在手里不放。autosettle 的每一轮 tick 是另一个事务，两边摸同一批行的
-    # 顺序正好相反 —— Postgres 直接报 deadlock detected，三方成环
-    # （证据：outputs/concurrency/SUMMARY-2026-09-30.md 第 10.4 节）。
-    # 先把这一步落库、把行锁全部放掉，再去动链：链上等待期间这条连接不再持有
-    # 任何行锁，环就少了一条长边。链上失败时在 except 里把状态退回去。
-    await db.commit()
-    try:
-        await _sync_escrow_settlement(
-            db=db, state=state, target_status=target_status, buyer_confirmed=buyer_confirmed
-        )
-    except Exception:  # noqa: BLE001 - 链上那一步不管怎么坏的，状态都得退回去
-        await _revert_chain_rejected_transition(
-            db=db,
-            prior=prior,
-            state=state,
-            from_status=from_status,
-            target_status=target_status,
-            reason=reason,
-            route_path=route_path,
-            actor_id=actor_id,
-        )
-        raise
-    # 上面那句链上调用是**同步**的（现在跑在事务外）：钱在链上动了，真相由
-    # escrow_settlement 写回数据库行（onchain_status / onchain_binding_id / tx_hash）。
-    # 但它改的是 ORM 行，不是手里这个 pydantic 对象 —— 直接把 state 返回出去，
-    # 操作台刚接完单就会看到 onchain_status=null，数据库里明明写着 bound。
-    # 重读一次，让响应说的是链上事实。
-    refreshed = await store.get(state.task_id)
-    return refreshed or state
+    return state
 
 
 async def _record_transition_audit(
@@ -1702,10 +1085,7 @@ async def _record_transition_audit(
         reason=reason,
         route_path=route_path,
         actor_id=actor_id,
-        metadata_={
-            # 拒绝归类：写进审计行，事后能直接按 class 查（链上腿失败 vs 状态机拒绝）。
-            "denial_class": denial_class_for_guard_stage(guard_stage),
-        },
+        metadata_={},
         created_at=datetime.utcnow(),
     )
     db.add(row)
@@ -1719,9 +1099,6 @@ async def _record_transition_audit(
             "to_status": to_status.value,
             "transition_allowed": transition_allowed,
             "guard_stage": guard_stage,
-            # 只有 state_machine 才算「非法穿越状态机」；链上腿失败（guard_stage=chain）
-            # 会被 autosettle 反复重试，把它算进拒绝率会让刹车按重试次数自己点着自己。
-            "denial_class": denial_class_for_guard_stage(guard_stage),
             "path": route_path or "unknown",
             "actor_id": actor_id or "anonymous",
             "route_group": "settlement",

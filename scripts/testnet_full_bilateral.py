@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """KarmaBilateral Sepolia Testnet Full Test Suite"""
-import json, time, sys, os
+import json, os, time, sys
 
-RPC = os.environ.get("SEPOLIA_RPC", "")
+RPC = os.environ.get("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
 USDC = "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF"
-ADMIN_KEY = os.environ.get("SEPOLIA_ADMIN_KEY", "")
-BUYER_KEY = os.environ.get("SEPOLIA_BUYER_KEY", "")
-AGENT_KEY = os.environ.get("SEPOLIA_AGENT_KEY", "")
-if not RPC or not ADMIN_KEY or not BUYER_KEY or not AGENT_KEY:
-    raise SystemExit(
-        "Required env vars: SEPOLIA_RPC, SEPOLIA_ADMIN_KEY, SEPOLIA_BUYER_KEY, SEPOLIA_AGENT_KEY"
-    )
+ADMIN_KEY = os.environ.get("TESTNET_ADMIN_KEY", "")
+BUYER_KEY = os.environ.get("TESTNET_BUYER_KEY", "")
+AGENT_KEY = os.environ.get("TESTNET_AGENT_KEY", "")
+if not ADMIN_KEY or not BUYER_KEY or not AGENT_KEY:
+    raise SystemExit("Set TESTNET_ADMIN_KEY / TESTNET_BUYER_KEY / TESTNET_AGENT_KEY")
 ADMIN = "0x7Ed437E5786AB0d217D52937da4fF4790998d94C"
 BUYER = "0x3295c96a2993C366B3dB27B6ac81f85801D75f51"
 AGENT = "0x16fE563a56E6566809597e4aF9a1608d3e55Dd7F"
@@ -125,7 +123,7 @@ test("SettleDelay revert", t_settle_delay)
 
 # 4. Settle
 import time as _time
-_settle_delay = karma.functions.settleDelaySeconds().call()
+_settle_delay = karma.functions.disputeWindowSeconds().call()
 print(f"  ⏳ Waiting {_settle_delay}s for settle delay...")
 _time.sleep(_settle_delay + 5)
 
@@ -175,7 +173,7 @@ def t_happy_path():
     buyer_before = usdc.functions.balanceOf(BUYER).call()
     agent_before = usdc.functions.balanceOf(AGENT).call()
     send_tx(karma.functions.settle(bid2, PROOF), buyer_acct)
-    dw = karma.functions.optimisticDisputeWindow().call()
+    dw = karma.functions.disputeWindow().call()
     _time.sleep(dw + 5)
     send_tx(karma.functions.finalizeSettle(bid2), admin_acct)
     b = karma.functions.getBinding(bid2).call()

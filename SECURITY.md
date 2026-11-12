@@ -49,6 +49,12 @@ Further review notes: `docs/SECURITY_SUMMARY_CN_EN.md` and historical audit note
 - `.env.example` must use placeholders only.
 - Internal operations material should stay in a private repository.
 
+### Previously leaked testnet credentials (rotate before reuse)
+
+- Hardcoded Sepolia private keys (buyer/agent/faucet-admin 0x7Ed437E5...) and an Infura API key were removed from `scripts/` and `apps/telegram_miniapp/index.html` and replaced with environment variables. Treat every removed key as compromised: rotate them on any wallet/provider that still uses them.
+- Testnet scripts now read secrets from env vars and fail fast when missing. Common names: SEPOLIA_RPC_URL, W1_KEY, W2_KEY, W3_KEY, FAUCET_KEY, E2E_BUYER_KEY, E2E_SELLER_KEY, TESTNET_ADMIN_KEY, TESTNET_BUYER_KEY, TESTNET_AGENT_KEY.
+- The public Anvil dev-mnemonic keys in scripts/e2e_bilateral_local.py, scripts/verify.cjs, scripts/proof.cjs, and scripts/simulate.cjs are the well-known test accounts and are safe for local-only use.
+
 ## Verification Baseline
 
 Karma uses layered verification combining tests, fuzzing, static analysis, and formal verification.

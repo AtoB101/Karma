@@ -106,13 +106,13 @@ contract KarmaIntentPackageTest is Test {
     // ── Setup ───────────────────────────────────────────────────────────
 
     function setUp() public {
+        usdc       = new MockERC20();
+        karmaToken = new MockERC20();
         vm.startPrank(admin);
         karma       = new KarmaBilateral(admin);
         scores      = new ScoringEngine(admin);
         evidence    = new EvidenceChain(admin);
         verifierReg = new VerifierRegistry(admin);
-        usdc        = new MockERC20();
-        karmaToken  = new MockERC20();
         karma.setTokenAllowed(address(usdc), true);
         vm.stopPrank();
 
@@ -168,7 +168,7 @@ contract KarmaIntentPackageTest is Test {
         bytes32 proof = keccak256("proof:delivered");
 
         // Fast-forward past settle delay
-        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
+        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(seller);
         karma.settle(id, proof);
 
@@ -331,7 +331,7 @@ contract KarmaIntentPackageTest is Test {
         uint256 id = _lockAndBind(buyer, seller, PRICE, address(0));
         bytes32 proof = keccak256("proof:delivered");
 
-        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
+        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(seller);
         karma.settle(id, proof);
 
@@ -361,7 +361,7 @@ contract KarmaIntentPackageTest is Test {
         uint256 id = karma.bindWithIntent(intent, bBill, aBill);
 
         // First settle (puts binding into FINALIZING, required for dispute)
-        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
+        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(seller);
         karma.settle(id, keccak256("proof:done"));
 
@@ -383,7 +383,7 @@ contract KarmaIntentPackageTest is Test {
         bytes32 proof = keccak256("proof:delivered");
 
         // Seller settles
-        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
+        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(seller);
         karma.settle(id, proof);
 
@@ -406,12 +406,12 @@ contract KarmaIntentPackageTest is Test {
         bytes32 proof = keccak256("proof:delivered");
 
         // Seller settles after settle delay (30 min)
-        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
+        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(seller);
         karma.settle(id, proof);
 
         // Warp past settleSubmittedAt + disputeWindow (24 hours)
-        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
+        vm.warp(block.timestamp + karma.disputeWindow() + 1);
         vm.prank(seller);
         karma.finalizeSettle(id);
 
@@ -613,13 +613,13 @@ contract KarmaIntentPackageTest is Test {
         assertTrue(scores.isHighReputation(seller));
     }
 
-    function test_scoring_unregisteredParty_autoRegistered() public {
+    function test_scoring_unregisteredParty_skipped() public {
         vm.prank(admin);
         scores.setAuthorizedSettler(address(this));
 
-        // stranger is not registered — the write path lazy-registers, then bumps.
+        // stranger is not registered — scoring should skip without revert
         scores.recordSettlement(stranger, buyer, address(0), true, 10000);
-        assertGt(scores.getReputationScore(stranger), 5000);
+        assertEq(scores.getReputationScore(stranger), 0); // never set
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -699,19 +699,14 @@ contract KarmaIntentPackageTest is Test {
     }
 
     function test_verifierRegistry_reward() public {
-        vm.startPrank(admin);
+        vm.prank(admin);
         verifierReg.setStakingConfig(address(karmaToken), 100_000_000, 500_000);
-        verifierReg.setRewardAllocator(admin);
-        vm.stopPrank();
 
         karmaToken.mint(address(verifierReg), 10_000_000);
-        vm.startPrank(admin);
-        verifierReg.creditRewards(500_000);
+        vm.prank(admin);
         verifierReg.rewardVerifier(verifier, 500_000);
-        vm.stopPrank();
 
         assertEq(karmaToken.balanceOf(verifier), 500_000);
-        assertEq(verifierReg.rewardPool(), 0);
     }
 
     function test_verifierRegistry_stakeWithoutTokenSet_reverts() public {

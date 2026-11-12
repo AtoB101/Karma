@@ -7,8 +7,7 @@ import pytest
 from httpx import AsyncClient
 from httptest import post_minimal_contract
 
-from core.schemas import EvidenceBundle, ExecutionReceipt, ToolStatus
-from services.receipt_canonical import evidence_bundle_signing_bytes
+from core.schemas import ExecutionReceipt, ToolStatus
 from services.signing import signing_service
 
 
@@ -35,15 +34,8 @@ def _signed_receipt_dict(
     return r.model_dump(mode="json")
 
 
-def _signed_bundle_dict(**fields) -> dict:
-    """带真实签名的证据包（P0-5：建包必须签名且验得通）。"""
-    b = EvidenceBundle(**fields)
-    b.agent_signature = signing_service.sign_bytes(evidence_bundle_signing_bytes(b))
-    return b.model_dump(mode="json")
-
-
 @pytest.mark.asyncio
-async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(client: AsyncClient, activate_identity):
+async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(client: AsyncClient):
     task_id = "task-p2-bundle-hash-tamper"
     buyer = "buyer-p2-bht"
     seller = "seller-p2-bht"
@@ -73,8 +65,6 @@ async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(cli
         },
     )
     vid = v.json()["voucher_id"]
-    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
-    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{vid}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",
@@ -87,21 +77,19 @@ async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(cli
     assert rec.status_code == 201, rec.text
     rid = rec.json()["receipt_id"]
 
-    bundle = _signed_bundle_dict(
-        task_id=task_id,
-        task_contract_hash="cc" * 32,
-        receipt_ids=[rid],
-        receipt_hashes=["ff" * 32],
-        final_result_hash="ee" * 32,
-        total_steps=1,
-        successful_steps=1,
-        failed_steps=0,
-        total_duration_ms=80,
-        settlement_status="delivered",
-    )
-    bresp = await client.post(
-        "/v1/bundles", json=bundle, headers={"X-Karma-Identity-Id": seller}
-    )
+    bundle = {
+        "task_id": task_id,
+        "task_contract_hash": "cc" * 32,
+        "receipt_ids": [rid],
+        "receipt_hashes": ["ff" * 32],
+        "final_result_hash": "ee" * 32,
+        "total_steps": 1,
+        "successful_steps": 1,
+        "failed_steps": 0,
+        "total_duration_ms": 80,
+        "settlement_status": "delivered",
+    }
+    bresp = await client.post("/v1/bundles", json=bundle)
     assert bresp.status_code == 201, bresp.text
 
     await client.post(f"/v1/settlement/{task_id}/submit", json={})
@@ -119,7 +107,7 @@ async def test_auto_arbitrate_buyer_wins_when_bundle_receipt_hashes_tampered(cli
 
 
 @pytest.mark.asyncio
-async def test_auto_arbitrate_format_error_when_bundle_step_counts_inconsistent(client: AsyncClient, activate_identity):
+async def test_auto_arbitrate_format_error_when_bundle_step_counts_inconsistent(client: AsyncClient):
     task_id = "task-p2-bundle-step-bad"
     buyer = "buyer-p2-steps"
     seller = "seller-p2-steps"
@@ -148,8 +136,6 @@ async def test_auto_arbitrate_format_error_when_bundle_step_counts_inconsistent(
             "buyer_signature": "sig-p2-steps",
         },
     )
-    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
-    await activate_identity(seller)
     await client.post(f"/v1/vouchers/{v.json()['voucher_id']}/accept", json={"seller_identity_id": seller})
     await client.post(
         "/v1/settlement/create",
@@ -166,22 +152,19 @@ async def test_auto_arbitrate_format_error_when_bundle_step_counts_inconsistent(
     er = ExecutionReceipt(**rec.json())
     good_hash = execution_receipt_bundle_digest(er)
 
-    bundle = _signed_bundle_dict(
-        task_id=task_id,
-        task_contract_hash="11" * 32,
-        receipt_ids=[rid],
-        receipt_hashes=[good_hash],
-        final_result_hash="22" * 32,
-        total_steps=99,
-        successful_steps=1,
-        failed_steps=0,
-        total_duration_ms=80,
-        settlement_status="delivered",
-    )
-    second_bundle = await client.post(
-        "/v1/bundles", json=bundle, headers={"X-Karma-Identity-Id": seller}
-    )
-    assert second_bundle.status_code == 201, second_bundle.text
+    bundle = {
+        "task_id": task_id,
+        "task_contract_hash": "11" * 32,
+        "receipt_ids": [rid],
+        "receipt_hashes": [good_hash],
+        "final_result_hash": "22" * 32,
+        "total_steps": 99,
+        "successful_steps": 1,
+        "failed_steps": 0,
+        "total_duration_ms": 80,
+        "settlement_status": "delivered",
+    }
+    assert (await client.post("/v1/bundles", json=bundle)).status_code == 201
 
     await client.post(f"/v1/settlement/{task_id}/submit", json={})
     await client.post(f"/v1/settlement/{task_id}/dispute", json={"reason": "step meta"})

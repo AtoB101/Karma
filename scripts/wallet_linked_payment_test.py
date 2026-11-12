@@ -33,7 +33,7 @@ AGENT_IDS = {
     "openmanus-worker":  "fd6da5af-44a4-4855-8818-7a0de67a70ba",
 }
 
-RPC_URL = os.environ.get("SEPOLIA_RPC", "")
+RPC_URL = os.environ.get("SEPOLIA_RPC_URL", "https://ethereum-sepolia-rpc.publicnode.com")
 RUNTIME = "http://127.0.0.1:8000"
 USDC_SEPOLIA = "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
 

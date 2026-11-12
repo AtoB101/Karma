@@ -82,11 +82,8 @@
   }
 
   function setText(root, selector, text) {
-    /* 同一个数字可能同时挂在总览指标和主身份卡上：全部更新，别只更新第一个。 */
-    var nodes = els(root, selector);
-    if (!nodes.length) nodes = els(document, selector);
-    var value = text == null ? "—" : String(text);
-    nodes.forEach(function (n) { n.textContent = value; });
+    var n = el(root, selector) || el(document, selector);
+    if (n) n.textContent = text == null ? "—" : String(text);
   }
 
   function fmtNum(x) {
@@ -139,30 +136,6 @@
     return (wid || "—") + " / " + (cid || "—");
   }
 
-  /* A filtered list that renders empty is indistinguishable from a broken page.
-     Say which sub-identity the console is scoped to and how many rows were
-     hidden, so a scope filter never reads as "no data". */
-  function renderScopeNote(tbody, total, hidden) {
-    var table = tbody && tbody.closest ? tbody.closest("table") : null;
-    var host = table ? table.parentNode : null;
-    if (!host) return;
-    var note = host.querySelector("[data-profile-scope-note]");
-    var apid = activeProfileId();
-    if (!apid) {
-      if (note) note.remove();
-      return;
-    }
-    if (!note) {
-      note = document.createElement("p");
-      note.setAttribute("data-profile-scope-note", "");
-      note.className = "scope-note";
-      host.appendChild(note);
-    }
-    note.textContent =
-      "当前只显示子身份 " + String(apid).slice(0, 12) + "… 的记录：共 " + total +
-      " 条，已隐藏 " + hidden + " 条属于其它子身份/主体身份的记录；顶部「切换子身份」选「主体（全部）」可查看全部。";
-  }
-
   function renderTasksTbody(tbody, identityId, taskIds) {
     if (!tbody) return;
     if (!taskIds.length) {
@@ -177,13 +150,6 @@
       return;
     }
     tbody.innerHTML = "";
-    var hiddenCount = 0;
-    var pending = taskIds.length;
-    function settled() {
-      if (pending <= 0) return;
-      pending -= 1;
-      if (pending === 0) renderScopeNote(tbody, taskIds.length, hiddenCount);
-    }
     taskIds.forEach(function (tid) {
       var tr = document.createElement("tr");
       var tdLoad = document.createElement("td");
@@ -220,17 +186,12 @@
           tdErr.colSpan = 8;
           tdErr.textContent = tid + ": " + s._err;
           tr.appendChild(tdErr);
-          settled();
           return;
         }
         var apid = activeProfileId();
-        // 子身份视角只认自己名下的任务：没有结算记录、或结算未标 profile_id
-        // 的任务属于主体身份卡，一律不在子身份视角里出现。
-        if (apid && (!s || s.profile_id !== apid)) {
-          hiddenCount += 1;
+        if (apid && s && s.profile_id && s.profile_id !== apid) {
           tr.style.display = "none";
           tr.setAttribute("data-profile-filtered", "1");
-          settled();
           return;
         }
         var rc = Array.isArray(rcpts) ? rcpts.length : 0;
@@ -261,7 +222,6 @@
               : "—";
         addCell(nxt);
         addCell(String(rc));
-        settled();
       });
     });
   }
@@ -348,15 +308,11 @@
     ).then(function (states) {
       tbody.innerHTML = "";
       var any = false;
-      var hiddenCount = 0;
       taskIds.forEach(function (tid, i) {
         var s = states[i];
         if (!s || String(s.status) !== "disputed") return;
         var apid = activeProfileId();
-        if (apid && s.profile_id !== apid) {
-          hiddenCount += 1;
-          return;
-        }
+        if (apid && s.profile_id && s.profile_id !== apid) return;
         any = true;
         var tr = document.createElement("tr");
         [tid, String(s.status), s.dispute_reason || "—", fmtNum(s.escrow_amount), identityId || "—"].forEach(function (t) {
@@ -370,7 +326,6 @@
         tbody.innerHTML =
           '<tr><td colspan="5" style="color:var(--muted)">No disputed tasks in the current ID list.</td></tr>';
       }
-      renderScopeNote(tbody, taskIds.length, hiddenCount);
     });
   }
 
@@ -399,17 +354,6 @@
     } catch (_) {
       setText(document.body, "[data-bind=api_env]", "—");
       setText(document.body, "[data-bind=api_version]", "—");
-    }
-
-    // Protected reads need a session token or an API key. Without one the API
-    // correctly answers 401, which would just spam the browser console on a
-    // fresh visit, so skip them until the user signs in.
-    var authed = !!(global.KARMA_ACCESS_TOKEN || global.KARMA_API_KEY);
-    if (!authed) {
-      try {
-        document.dispatchEvent(new CustomEvent("karma-console-sync-done"));
-      } catch (_) {}
-      return;
     }
 
     if (identityId) {
@@ -457,13 +401,9 @@
     }
   }
 
-  // 会话过期后要能按原来的 root 恢复定时刷新，所以记住上次用的那个。
-  var _autoRoot = null;
-
   function startAuto(root) {
     stopAuto();
     var r = root || document.body;
-    _autoRoot = r;
     var ms = parseInt(r.getAttribute("data-sync-interval-ms") || String(DEFAULT_INTERVAL_MS), 10);
     if (ms < 3000) ms = 3000;
     var cb = el(r, "[data-cfg=auto_sync]") || el(document.body, "[data-cfg=auto_sync]");
@@ -481,8 +421,8 @@
       var i = el(document.body, "[data-cfg=identity_id]");
       var t = el(document.body, "[data-cfg=task_ids]");
       if (b && !b.value.trim()) b.value = localStorage.getItem(LS_BASE) || "";
-      if (k && !k.value.trim()) k.value = sessionStorage.getItem(LS_KEY) || "";
-      if (i && !i.value.trim()) i.value = sessionStorage.getItem(LS_ID) || "";
+      if (k && !k.value.trim()) k.value = sessionStorage.getItem(LS_KEY) || localStorage.getItem(LS_KEY) || "";
+      if (i && !i.value.trim()) i.value = sessionStorage.getItem(LS_ID) || localStorage.getItem(LS_ID) || "";
       if (t && !t.value.trim()) t.value = localStorage.getItem(LS_TASKS) || "";
     } catch (_) {}
   }
@@ -539,25 +479,6 @@
   // Re-filter the task/dispute tables when the active identity role profile changes.
   document.addEventListener("karma-profile-switched", function () {
     refreshAll().catch(function () {});
-  });
-
-  // A wallet just signed in, or a stored session was restored: pull this
-  // identity's data straight away instead of waiting for a manual refresh.
-  // 会话重新连上 = 定时刷新也可以恢复了（见下面 karma-session-expired 的反向处理）。
-  ["karma-wallet-connected", "karma-session-restored"].forEach(function (name) {
-    document.addEventListener(name, function () {
-      refreshAll().catch(function () {});
-      startAuto(_autoRoot || document.body);
-    });
-  });
-
-  // 会话过期了就别再轮询。以前 markExpired() 只是提示 + 关上入口门禁，令牌并没有被
-  // 清掉，于是 authed 仍为 true、定时器照跑 —— 每 15 秒拿一把废 token 撞一次 401。
-  // 2026-10-13 线上实测：一次会话过期，单个端点一小时能刷出约 250 条匿名 401，把安全
-  // 报表里的 auth_failure_spike 顶成噪声，真有攻击时反而看不出来。这里把定时器停掉，
-  // 等上面那两条「重新连上」的事件再恢复。
-  document.addEventListener("karma-session-expired", function () {
-    stopAuto();
   });
 
   document.addEventListener("DOMContentLoaded", function () {

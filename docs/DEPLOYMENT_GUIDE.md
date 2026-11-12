@@ -70,10 +70,6 @@ AUTH_API_KEYS=agent-1:<强密钥>,agent-2:<强密钥>
 AUTH_ALLOW_DEV_KEY_FALLBACK=false
 ADMIN_ACTOR_IDS=<管理员 identity_id 列表>
 ARBITRATOR_ACTOR_IDS=<仲裁员 identity_id 列表>
-# 仲裁池是否对全部登录身份开放申请（抵押仍必须由已锁仓的真实 USDC 背书，
-# 且必须严格大于案值）。false 时只有 ARBITRATOR_ACTOR_IDS 里的人能入池，
-# 池子永远是空的 —— 争议立了案也凑不出仲裁庭。
-ARBITRATION_POOL_OPEN_JOIN=true
 
 # ── 数据库 / Redis / MinIO ──
 DATABASE_URL=postgresql+asyncpg://karma:<密码>@localhost:5432/karma_db
@@ -86,10 +82,6 @@ MINIO_SECRET_KEY=<非默认>
 
 # ── CORS ──
 CORS_ALLOW_ORIGINS=https://你的控制台域名
-
-# 交付后买方的确认窗口（小时）。交付时写进结算单，窗口到期后
-# POST /v1/settlement/{task_id}/auto-confirm 才能兜底放款；置 0 = 关闭自动兜底。
-SETTLEMENT_CONFIRM_WINDOW_HOURS=72
 
 # ── 结算模式：offchain | testnet | hybrid ──
 SETTLEMENT_MODE=testnet
@@ -107,9 +99,7 @@ KARMA_SIGNING_BACKEND=client_only
 # 生产建议启用 EIP-712 凭证/交易签名
 VOUCHER_REQUIRE_EIP712=true
 TRADE_LAUNCH_REQUIRE_EIP712=true
-X402_PAYMENT_BACKEND=sepolia   # 只能是 env | sepolia（生产禁止 mock）
-X402_ALLOW_PRIVATE_HOSTS=false
-X402_PRIVATE_KEY=<x402 专用私钥；不能借用结算运营钱包>
+X402_PAYMENT_BACKEND=live   # 生产不允许 mock
 
 # ── Runtime Key（生产必填）──
 RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY=true
@@ -123,21 +113,11 @@ RECEIPT_REQUIRE_SIGNATURE=true
 LEDGER_REQUIRE_PARTY_ACTOR=true
 SETTLEMENT_REQUIRE_PARTY_ACTOR=true
 RATE_LIMIT_REDIS_FAIL_CLOSED=true
-# 验证者节点写接口必须由节点自有钱包签名（生产强制）
-VERIFIER_REQUIRE_NODE_SIGNATURE=true
-# 节点必须声明主人身份（钱包 = 绑定钱包），押金必须由已锁仓 USDC 背书
-VERIFIER_REQUIRE_OWNER_IDENTITY=true
-VERIFIER_REQUIRE_BACKED_BOND=true
+
 # ── 签名密钥（Ed25519，回执签名）──
 ED25519_PRIVATE_KEY_PATH=./keys/agent_private.pem
 ED25519_PUBLIC_KEY_PATH=./keys/agent_public.pem
 ```
-
-> 上面这组生产闸门的**唯一来源**是 `config/production_gates.py`：两处门禁脚本直接
-> `from config.production_gates import PRODUCTION_GATE_DEFAULTS`，模板/文档由
-> `tests/unit/test_production_gate_manifest_parity.py` 逐键校验（它会动态枚举 settings
-> 在 `APP_ENV=production` 下会拒绝的字段）。新增闸门时改那一个文件 + 这份清单，
-> 漏一处 CI 直接红 —— 2026-10-08 就是因为漏改门禁脚本，CI 和线上部署同时挂掉。
 
 > 生产校验：`config/settings.py` 内置 `_reject_default_secrets_in_production`，`APP_ENV=production` 时上述安全项缺失/为默认值会直接拒绝启动。请务必逐项核对。
 
@@ -231,12 +211,9 @@ server {
 - [ ] `RATE_LIMIT_REDIS_FAIL_CLOSED=true`
 - [ ] `RUNTIME_REQUIRE_*` 全部 true
 - [ ] `ARBITRATOR_ACTOR_IDS` 非空
-- [ ] `ARBITRATION_POOL_OPEN_JOIN=true`（否则仲裁池永远是空的，争议无人可裁）
-- [ ] `SETTLEMENT_CONFIRM_WINDOW_HOURS` > 0（否则交付后的超时兜底 /auto-confirm 不可达）
 - [ ] `CHAIN_ALLOW_HOT_WALLET_PAYER=false`（后端热钱包不碰资金）
 - [ ] `KARMA_SIGNING_BACKEND=client_only|external`
 - [ ] `RECEIPT_REQUIRE_SIGNATURE / LEDGER_REQUIRE_PARTY_ACTOR / SETTLEMENT_REQUIRE_PARTY_ACTOR` = true
-- [ ] `VERIFIER_REQUIRE_NODE_SIGNATURE=true`（节点登记/抵押/见证必须带节点钱包签名）
 - [ ] `X402_PAYMENT_BACKEND != mock`
 - [ ] `TRADE_LAUNCH_REQUIRE_EIP712 / VOUCHER_REQUIRE_EIP712` = true
 - [ ] MinIO 凭证非默认

@@ -23,11 +23,28 @@ import os
 import sys
 
 # Ensure production flags unless explicitly set in environment
-# 生产必填项的唯一来源：config/production_gates.py。
-# tests/unit/test_production_gate_manifest_parity.py 保证这张清单不漏项。
-from config.production_gates import PRODUCTION_GATE_DEFAULTS
-
-defaults = dict(PRODUCTION_GATE_DEFAULTS)
+defaults = {
+    "AUTH_ENFORCE_PROTECTED_ROUTES": "true",
+    "AUTH_ALLOW_DEV_KEY_FALLBACK": "false",
+    "RATE_LIMIT_REDIS_FAIL_CLOSED": "true",
+    "RECEIPT_REQUIRE_SIGNATURE": "true",
+    "LEDGER_REQUIRE_PARTY_ACTOR": "true",
+    "SETTLEMENT_REQUIRE_PARTY_ACTOR": "true",
+    "RUNTIME_REQUIRE_SAVED_AUTOMATION_POLICY": "true",
+    "RUNTIME_REQUIRE_TASK_AUTOMATION_READINESS": "true",
+    "RUNTIME_REQUIRE_HANDOFF_ATTESTATION": "true",
+    "RUNTIME_REQUIRE_WALLET_IDENTITY_BINDING": "true",
+    "RUNTIME_DAILY_SPEND_PERSIST": "true",
+    "TRADE_LAUNCH_REQUIRE_EIP712": "true",
+    "KARMA_SIGNING_BACKEND": "client_only",
+    "X402_PAYMENT_BACKEND": "sepolia",
+    # Production settings now require a non-empty dispute-arbitrator whitelist
+    # (fail-closed /disputes/resolve); supply a gate-check placeholder.
+    "ARBITRATOR_ACTOR_IDS": "gate-arbitrator",
+    # Production forbids a backend hot wallet as escrow payer; force the
+    # secure default so local .env files cannot flip this gate.
+    "CHAIN_ALLOW_HOT_WALLET_PAYER": "false",
+}
 for k, v in defaults.items():
     os.environ.setdefault(k, v)
 

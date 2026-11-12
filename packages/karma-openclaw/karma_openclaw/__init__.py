@@ -10,8 +10,6 @@ from typing import Any
 
 __all__ = ["build_app", "main"]
 
-__version__ = "0.4.0"
-
 
 def __getattr__(name: str) -> Any:
     if name in ("build_app", "main"):

@@ -66,9 +66,9 @@ contract KarmaBilateralFeeBridgeTest is Test {
     bytes32 internal constant PROOF = keccak256("proof");
 
     function setUp() public {
+        usdc = new MockERC20();
         vm.startPrank(admin);
         karma = new KarmaBilateral(admin);
-        usdc = new MockERC20();
         karma.setTokenAllowed(address(usdc), true);
         // cold-start: fee=0
         bridge = new MockFeeBridge(address(karma), 0);
@@ -95,11 +95,11 @@ contract KarmaBilateralFeeBridgeTest is Test {
 
     function _settle(uint256 bindingId) internal {
         // past settle delay
-        vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
+        vm.warp(block.timestamp + karma.disputeWindowSeconds() + 1);
         vm.prank(buyer);
         karma.settle(bindingId, PROOF);
         // past optimistic dispute window → finalize (FeeBridge runs here)
-        vm.warp(block.timestamp + karma.optimisticDisputeWindow() + 1);
+        vm.warp(block.timestamp + karma.disputeWindow() + 1);
         karma.finalizeSettle(bindingId);
     }
 

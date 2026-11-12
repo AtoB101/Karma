@@ -9,12 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import ResponsibilityEdgeType, VoucherStatus
 from db.models.orm import CapacityModel, VoucherModel
-from services import atomic_ledger
-from services.capacity_ledger import (
-    assert_capacity_invariants,
-    capacity_conservation_gap,
-    heal_capacity_conservation,
-)
+from services.capacity_ledger import assert_capacity_invariants
 from core.schemas import CapacityState
 from services.responsibility_graph import ingest_edge
 from services.runtime_safety import audit_capacity_anchor_and_maybe_trip
@@ -47,7 +42,6 @@ async def accept_voucher_row(
     *,
     seller_identity_id: str,
     actor: str = "console",
-    seller_profile_id: str | None = None,
 ) -> VoucherModel:
     if row.status != VoucherStatus.CREATED.value:
         raise HTTPException(409, f"voucher already processed: {row.status}")
@@ -57,44 +51,13 @@ async def accept_voucher_row(
     if row.seller_identity_id != seller_identity_id:
         raise HTTPException(403, "seller mismatch")
 
-    if seller_profile_id:
-        from db.models.orm import IdentityRoleProfile
-
-        profile = await db.get(IdentityRoleProfile, seller_profile_id)
-        if profile is None or profile.owner_identity_id != seller_identity_id:
-            raise HTTPException(
-                404, f"profile {seller_profile_id} not found for this seller"
-            )
-        row.seller_profile_id = seller_profile_id
-
     cap = await db.get(CapacityModel, row.buyer_identity_id)
     if not cap or cap.available_credits < row.bill_credit_amount:
         raise HTTPException(409, "insufficient buyer available credits")
 
-    # 并发安全：预留额度是「可失败」操作。原来先判断再逐字段改写，两个并发接单
-    # 会双双通过校验、各预留一次；这里把余额条件放进 WHERE，由数据库判定。
-    reserved_amount = row.bill_credit_amount
-    try:
-        await atomic_ledger.apply_delta_or_raise(
-            db,
-            CapacityModel,
-            "identity_id",
-            row.buyer_identity_id,
-            {"available_credits": -reserved_amount, "reserved_credits": reserved_amount},
-            guards=[(lambda C, _need=reserved_amount: C.available_credits + 1e-9 >= _need)],
-            message="insufficient buyer available credits",
-        )
-    except atomic_ledger.LedgerConflict as exc:
-        raise HTTPException(409, str(exc)) from exc
-
-    cap = await atomic_ledger.reload(db, CapacityModel, row.buyer_identity_id)
-    if cap is not None and capacity_conservation_gap(cap) is not None:
-        # 派生列被写坏（并发窗口 / 老 bug 留下的行）：先按守恒式修，别让接单这条
-        # 钱的路在自检上炸掉。修不了会在下面重新抛出。
-        await heal_capacity_conservation(
-            db, row.buyer_identity_id, context="voucher_accept"
-        )
-        cap = await atomic_ledger.reload(db, CapacityModel, row.buyer_identity_id)
+    cap.available_credits -= row.bill_credit_amount
+    cap.reserved_credits += row.bill_credit_amount
+    cap.updated_at = datetime.utcnow()
     _validate_capacity_row(cap)
     await audit_capacity_anchor_and_maybe_trip(db=db)
 

@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.settings import settings
@@ -94,54 +93,10 @@ async def _assert_pipeline_preauth(db: AsyncSession, identity_id: str, *, role: 
         )
 
 
-_TERMINAL_ORDER_STATUSES = ("rejected", "execution_started", "failed")
-
-
-async def _order_status_without_lazy_load(
-    db: AsyncSession, *, order: TradeOrderModel, order_id: str
-) -> str | None:
-    """读订单状态，但绝不触发同步懒加载。
-
-    管线中途会 ``db.rollback()``（``revert_chain_rejected_transition`` 里那一下，
-    链上闸门没过就走它），而 rollback 会**无条件**把 session 上的实例标记过期
-    —— 连主键一起。此后读 ``order.status`` 就是一次同步重载，asyncpg 直接抛
-    ``MissingGreenlet``；它发生在 ``except HTTPException`` 里，于是真正的
-    HTTPException 被换成裸 500，失败原因当场丢失（2026-10-01 生产实测）。
-
-    所以这里只认调用方传进来的 ``order_id``（不能碰 ``order`` 的任何属性），
-    先取内存里已有的值，真没有再用异步 IO 重查一次。
-    """
-    insp = sa_inspect(order)
-    cached = insp.dict.get("status")
-    if cached is not None:
-        return str(cached)
-    try:
-        row = await db.get(TradeOrderModel, order_id)
-    except Exception:  # noqa: BLE001 - session 里可能还挂着失败的事务
-        await db.rollback()
-        row = await db.get(TradeOrderModel, order_id)
-    return None if row is None else str(row.status)
-
-
 async def _mark_order_failed(order: TradeOrderModel, detail: str) -> None:
     order.status = "failed"
     order.status_detail = detail[:2000]
     order.updated_at = datetime.utcnow()
-
-
-async def _mark_order_failed_durable(db: AsyncSession, order: TradeOrderModel, detail: str) -> None:
-    """把失败态落库。
-
-    ``apply_settlement_transition`` 现在会把链上那一步挪到事务外（它自己 commit），
-    所以下面 except 里的 ``flush`` 已经不够了 —— 不显式提交，回滚会把「失败」这两
-    个字一起抹掉，订单会停在上一个已提交的状态上。
-    """
-    await _mark_order_failed(order, detail)
-    try:
-        await db.commit()
-    except Exception:  # noqa: BLE001 - 记不上失败态也不能顶掉真正的错误
-        logger.warning("trade_pipeline_mark_failed_commit_failed", exc_info=True)
-        await db.rollback()
 
 
 async def launch_preauth_trade_order(
@@ -270,12 +225,13 @@ async def launch_preauth_trade_order(
             launch_attestation=launch_attestation,
         )
     except HTTPException:
-        current = await _order_status_without_lazy_load(db, order=order, order_id=order_id)
-        if current is None or current not in _TERMINAL_ORDER_STATUSES:
-            await _mark_order_failed_durable(db, order, "pipeline aborted")
+        if order.status not in ("rejected", "execution_started", "failed"):
+            await _mark_order_failed(order, "pipeline aborted")
+            await db.flush()
         raise
     except Exception as exc:
-        await _mark_order_failed_durable(db, order, str(exc))
+        await _mark_order_failed(order, str(exc))
+        await db.flush()
         logger.exception("trade pipeline failed order_id=%s", order_id)
         raise
 

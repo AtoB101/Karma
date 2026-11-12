@@ -6,10 +6,21 @@ contract MockERC20 {
     string public symbol = "mUSDC";
     uint8 public decimals = 6;
 
+    address public immutable owner;
+
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
 
-    function mint(address to, uint256 amount) external {
+    constructor() {
+        owner = msg.sender;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "MockERC20: only owner");
+        _;
+    }
+
+    function mint(address to, uint256 amount) external onlyOwner {
         balanceOf[to] += amount;
     }
 

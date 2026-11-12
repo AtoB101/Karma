@@ -11,14 +11,13 @@ Admin wallet must be funded with mUSDC and Sepolia ETH for gas.
 import sys, os
 from web3 import Web3
 
-RPC = os.environ.get("SEPOLIA_RPC", "")
+RPC = os.environ.get("SEPOLIA_RPC", "https://ethereum-sepolia-rpc.publicnode.com")
 USDC = "0x6AF606f5B071BF649DC136fCd308ed0c9ADf38FF"
 ADMIN_KEY = os.environ.get("FAUCET_KEY", "")
 
-if not RPC:
-    raise SystemExit("SEPOLIA_RPC env var is required (use your own RPC URL).")
 if not ADMIN_KEY:
-    raise SystemExit("FAUCET_KEY env var is required (faucet admin private key).")
+    print("Set FAUCET_KEY (faucet admin private key) in the environment.")
+    sys.exit(1)
 
 USDC_ABI = [
     {"name":"transfer","type":"function","inputs":[{"name":"to","type":"address"},{"name":"amount","type":"uint256"}],"outputs":[{"name":"","type":"bool"}]},

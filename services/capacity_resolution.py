@@ -8,12 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import CapacityState
 from db.models.orm import CapacityModel
-from services import atomic_ledger
-from services.capacity_ledger import (
-    assert_capacity_invariants,
-    capacity_conservation_gap,
-    heal_capacity_conservation,
-)
+from services.capacity_ledger import assert_capacity_invariants
 from services.runtime_safety import audit_capacity_anchor_and_maybe_trip
 
 
@@ -29,23 +24,11 @@ async def move_reserved_to_disputed(
         raise HTTPException(409, "buyer has no capacity ledger; cannot open dispute")
     if cap.reserved_credits + 1e-9 < escrow_amount:
         raise HTTPException(409, "insufficient reserved credits to freeze for dispute")
-    # 并发安全：冻结进争议桶，用带守卫的原子增量，避免两个并发争议各冻结一次。
-    try:
-        await atomic_ledger.apply_delta_or_raise(
-            db,
-            CapacityModel,
-            "identity_id",
-            buyer_identity_id,
-            {"reserved_credits": -escrow_amount, "disputed_credits": escrow_amount},
-            guards=[(lambda C, _need=escrow_amount: C.reserved_credits + 1e-9 >= _need)],
-            message="insufficient reserved credits to freeze for dispute",
-        )
-    except atomic_ledger.LedgerConflict as exc:
-        raise HTTPException(409, str(exc)) from exc
-
-    await _assert_capacity_after_write(
-        db=db, buyer_identity_id=buyer_identity_id, context="dispute_freeze"
-    )
+    cap.reserved_credits -= escrow_amount
+    cap.disputed_credits += escrow_amount
+    cap.updated_at = datetime.utcnow()
+    _assert_capacity(cap)
+    await audit_capacity_anchor_and_maybe_trip(db=db)
     await audit_capacity_anchor_and_maybe_trip(db=db)
 
 
@@ -69,126 +52,26 @@ async def apply_capacity_resolution(
     if cap.total_locked_usdc + 1e-9 < escrow_amount:
         raise HTTPException(409, "capacity total_locked_usdc lower than settlement escrow amount")
 
-    # 并发安全：结算放款是「可失败」操作，且必须先命中 disputed 或 reserved 之一。
-    # 两次带守卫的原子尝试（高并发下只有一次会成功），避免重复放款/双花。
-    base_deltas = {
-        "burned_credits": settled_amount,
-        "released_credits": refunded_amount,
-        "total_bill_credits": -escrow_amount,
-        "total_locked_usdc": -escrow_amount,
-    }
-    common_guards = [
-        (lambda C, _need=escrow_amount: C.total_bill_credits + 1e-9 >= _need),
-        (lambda C, _need=escrow_amount: C.total_locked_usdc + 1e-9 >= _need),
-    ]
-    rows = await atomic_ledger.apply_delta(
-        db,
-        CapacityModel,
-        "identity_id",
-        buyer_identity_id,
-        {**base_deltas, "disputed_credits": -escrow_amount},
-        guards=common_guards + [(lambda C, _need=escrow_amount: C.disputed_credits + 1e-9 >= _need)],
-    )
-    if rows != 1:
-        rows = await atomic_ledger.apply_delta(
-            db,
-            CapacityModel,
-            "identity_id",
-            buyer_identity_id,
-            {**base_deltas, "reserved_credits": -escrow_amount},
-            guards=common_guards + [(lambda C, _need=escrow_amount: C.reserved_credits + 1e-9 >= _need)],
-        )
-    if rows != 1:
+    if cap.disputed_credits + 1e-9 >= escrow_amount:
+        cap.disputed_credits -= escrow_amount
+    elif cap.reserved_credits + 1e-9 >= escrow_amount:
+        cap.reserved_credits -= escrow_amount
+    else:
         raise HTTPException(
             409,
             "capacity: neither disputed_credits nor reserved_credits cover escrow amount",
         )
 
-    await _assert_capacity_after_write(
-        db=db, buyer_identity_id=buyer_identity_id, context="capacity_resolution"
-    )
+    cap.burned_credits += settled_amount
+    cap.released_credits += refunded_amount
+    cap.total_bill_credits -= escrow_amount
+    cap.total_locked_usdc -= escrow_amount
+    cap.updated_at = datetime.utcnow()
+    _assert_capacity(cap)
     await audit_capacity_anchor_and_maybe_trip(db=db)
 
 
-async def release_dispute_freeze(
-    *,
-    db: AsyncSession,
-    buyer_identity_id: str,
-    escrow_amount: float,
-    settled: bool,
-) -> float:
-    """链上已经把这一单走完了 —— 把总账里那份「争议冻结」放掉。
-
-    争议冻结是 ``move_reserved_to_disputed`` 从 ``reserved`` 挪进 ``disputed`` 的那一笔，
-    API 侧只有 ``apply_capacity_resolution`` 一条出口。可**链上终局并不总从 API 走**：
-    裁定方在链上把绑定撤了（``cancelBinding``）、或者保护期到点后别人先推了
-    ``finalizeSettlement`` —— 这两条由 ``escrow_autosettle`` 的兜底那一遍补台账，
-    而那条路过去只写 ``onchain_status``，``disputed`` 桶就永远留在账上。
-
-    代价是真金白银的：操作台永久显示「争议冻结 N，等待仲裁推进」，而且
-    ``assert_can_release_locked_funds`` 会把解锁卡死 —— 责任状态一天不清，用户锁在
-    托管里的钱一天取不回来（2026-09-21 真钱实测：两笔各 0.2 卡在桶里出不来）。
-
-    放多少**只认账上真有的**（``disputed`` 桶，且不超过这一单的 escrow），所以重复
-    调用天然幂等，也绝不会去动别的单子占着的 ``reserved``。``settled=True`` 表示这
-    一单的钱最终付给了卖方（记 burned），否则退回买方（记 released）。
-
-    返回真正放掉的金额。并发冲突时抛 ``LedgerConflict`` —— 调用方必须当作「没放成」
-    让下一轮重试，不能当成「本来就没有」。
-    """
-    cap = await db.get(CapacityModel, buyer_identity_id)
-    if cap is None:
-        return 0.0
-    held = min(
-        max(0.0, float(escrow_amount or 0.0)),
-        max(0.0, float(cap.disputed_credits or 0.0)),
-    )
-    if held <= 1e-9:
-        return 0.0
-    deltas = {
-        "disputed_credits": -held,
-        "total_bill_credits": -held,
-        "total_locked_usdc": -held,
-        "burned_credits": held if settled else 0.0,
-        "released_credits": 0.0 if settled else held,
-    }
-    await atomic_ledger.apply_delta_or_raise(
-        db,
-        CapacityModel,
-        "identity_id",
-        buyer_identity_id,
-        deltas,
-        guards=[
-            (lambda C, _need=held: C.disputed_credits + 1e-9 >= _need),
-            (lambda C, _need=held: C.total_bill_credits + 1e-9 >= _need),
-            (lambda C, _need=held: C.total_locked_usdc + 1e-9 >= _need),
-        ],
-        message="disputed freeze changed concurrently; retry the release",
-    )
-    return held
-
-
-async def _assert_capacity_after_write(
-    *, db: AsyncSession, buyer_identity_id: str, context: str
-) -> None:
-    """钱动完之后复核守恒式 —— 派生列被写坏**就地修复**，修不好才 500。
-
-    ``total_bill_credits`` / ``total_locked_usdc`` 都是同一行其它列推得出来的派生值，
-    被写坏时（并发窗口、人工修库、老 bug 留下的行）没有任何理由把用户挡在门外：每个
-    动钱的入口都会在这里 500，钱一分没动，用户却办不了事（2026-09-29 真钱实测：开争议
-    500 "capacity invariant check failed"）。先按守恒式修，再重读复核；复核仍不过才是
-    真的坏了，那时候 500 才对。
-    """
-    cap = await atomic_ledger.reload(db, CapacityModel, buyer_identity_id)
-    if cap is not None and capacity_conservation_gap(cap) is not None:
-        await heal_capacity_conservation(db, buyer_identity_id, context=context)
-        cap = await atomic_ledger.reload(db, CapacityModel, buyer_identity_id)
-    _assert_capacity(cap)
-
-
-def _assert_capacity(cap: CapacityModel | None) -> None:
-    if cap is None:
-        raise HTTPException(500, "capacity invariant check failed")
+def _assert_capacity(cap: CapacityModel) -> None:
     try:
         assert_capacity_invariants(
             CapacityState(

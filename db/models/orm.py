@@ -4,32 +4,13 @@ Karma — Database Models (SQLAlchemy async)
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import (
     JSON, Boolean, DateTime, Float, ForeignKey,
-    Index, Integer, String, Text, UniqueConstraint,
+    Integer, String, Text, UniqueConstraint,
 )
-from sqlalchemy.types import TypeDecorator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
-
-class UTCDateTime(TypeDecorator):
-    """DateTime that stores tz-aware values as naive UTC.
-
-    The schema uses ``timestamp without time zone`` columns and asyncpg refuses to
-    bind an aware datetime to them ("can't subtract offset-naive and offset-aware
-    datetimes"). Anything that arrives aware - e.g. an ISO string with a ``Z`` or
-    ``+00:00`` offset produced by a browser - is normalised to naive UTC here.
-    """
-
-    impl = DateTime
-    cache_ok = True
-
-    def process_bind_param(self, value, dialect):  # noqa: ANN001
-        if isinstance(value, datetime) and value.tzinfo is not None:
-            return value.astimezone(timezone.utc).replace(tzinfo=None)
-        return value
 
 
 class Base(DeclarativeBase):
@@ -54,7 +35,7 @@ class AgentModel(Base):
     endpoint_url:  Mapped[str|None] = mapped_column(String(512))
     capabilities:  Mapped[list]     = mapped_column(JSON, default=list)
     is_active:     Mapped[bool]     = mapped_column(Boolean, default=True)
-    registered_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    registered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     # P1 onboarding — identity class, owner bind, readiness (anti-forgery / counterparty verify)
     identity_class:     Mapped[str|None] = mapped_column(String(32), nullable=True)
     owner_identity_id:  Mapped[str|None] = mapped_column(String(128), nullable=True, index=True)
@@ -82,70 +63,8 @@ class IdentityRoleProfile(Base):
     display_name:      Mapped[str | None]  = mapped_column(String(256))
     kyc_payload:       Mapped[dict]        = mapped_column(JSON, default=dict)
     status:            Mapped[str]         = mapped_column(String(16), nullable=False, default="active")
-    # 子身份自己的操作钱包（签名 / 授权）；资金仍然统一走主身份钱包，见 identity_verification。
-    bound_wallet_address: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    # 子身份的默认权限与边界：生成 SDK 时预填，真正强制落在 runtime key 上。
-    spend_policy:      Mapped[dict]        = mapped_column(JSON, default=dict)
-    # 治理岗（verifier / arbitrator）的质押承诺额。0 = 白名单开的岗、或者还没质押。
-    # 这只是一条**承诺**：真正有没有钱在里面，每次都去 capacity.total_locked_usdc
-    # 现算（services/governance_stake.py）—— 押金被划走之后岗位立刻失效，靠的就是现算。
-    stake_amount:      Mapped[float]       = mapped_column(Float, default=0.0, nullable=False, server_default="0")
-    created_at:        Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:        Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class ConsoleTwoFactorModel(Base):
-    """操作台的第二把锁（TOTP，RFC 6238）：授权 / 取消授权 / 摘公钥都要过一次验证码。
-
-    只存三样东西：TOTP 密钥（base32）、**恢复码的哈希**（不是明文）、失败计数与锁定时间。
-    验证码本身不落库 —— 它是 30 秒一换的一次性口令，存下来只会变成新的秘密。
-    一条身份一行；没绑过的身份连行都没有（读取时按「未绑定」处理）。
-    """
-    __tablename__ = "console_two_factors"
-
-    identity_id:        Mapped[str]           = mapped_column(String(128), primary_key=True)
-    #: 生效中的 TOTP 密钥；NULL = 还没确认绑定（此时只有 pending_secret）。
-    secret:             Mapped[str | None]    = mapped_column(String(64), nullable=True)
-    enabled_at:         Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    #: 签发了但还没被验证码确认的密钥 —— 确认之前它什么都不是。
-    pending_secret:     Mapped[str | None]    = mapped_column(String(64), nullable=True)
-    pending_created_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    #: 恢复码只存 sha256（拌了身份 id）；用掉一张就少一张，列表长度就是剩余张数。
-    recovery_hashes:    Mapped[list]          = mapped_column(JSON, default=list)
-    failures:           Mapped[int]           = mapped_column(Integer, default=0, nullable=False, server_default="0")
-    locked_until:       Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    last_used_at:       Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    created_at:         Mapped[datetime]      = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:         Mapped[datetime]      = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class IdentityFaceTemplateModel(Base):
-    """主身份首次刷脸留下的**脸型模板密文**：追加身份时拿它做同人比对。
-
-    与证件包同一套纪律：模板在浏览器里用钱包签名派生的密钥加密，Karma 只拿到密文、
-    摘要和采集元数据（角度数 / 活体动作 / 来源）。明文脸型永远不离开用户设备，
-    服务端也算不出「这张脸是谁」—— 它只能在用户自己把模板解出来、比完、
-    签过名之后，复核这个结论。
-
-    每次追加身份都要重新比对一次；这张表只留**最初那一次**的模板，
-    想换模板只能重走一次刷脸激活（那等于重新登记本人）。
-    """
-    __tablename__ = "identity_face_templates"
-
-    identity_id:     Mapped[str]        = mapped_column(String(128), primary_key=True)
-    template_cipher: Mapped[str]        = mapped_column(Text, nullable=False)
-    template_digest: Mapped[str]        = mapped_column(String(128), nullable=False)
-    #: 模板的构造方式（版本号 / 维度 / 归一化），换算法时靠它认得出旧模板。
-    algorithm:       Mapped[str | None] = mapped_column(String(64), nullable=True)
-    encryption:      Mapped[dict]       = mapped_column(JSON, default=dict)
-    #: 采集元数据：角度数、活体动作、来源（camera / photo）—— 都脱敏，不含人脸数据。
-    liveness:        Mapped[dict]       = mapped_column(JSON, default=dict)
-    capture_digest:  Mapped[str | None] = mapped_column(String(128), nullable=True)
-    wallet_address:  Mapped[str | None] = mapped_column(String(128), nullable=True)
-    #: 这次刷脸给到的等级：目前只有 face_liveness（刷脸即激活）。
-    level:           Mapped[str]        = mapped_column(String(16), nullable=False, default="face_liveness")
-    created_at:      Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:      Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at:        Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:        Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class IdentityDisclosureModel(Base):
@@ -163,8 +82,8 @@ class IdentityDisclosureModel(Base):
     task_id:                Mapped[str | None]  = mapped_column(String(64), nullable=True, index=True)
     scope:                  Mapped[str]         = mapped_column(String(16), nullable=False, default="transaction")
     status:                 Mapped[str]         = mapped_column(String(16), nullable=False, default="active")
-    created_at:             Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:             Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at:             Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime]    = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -183,9 +102,9 @@ class TaskContractModel(Base):
     expected_step_count:    Mapped[int]      = mapped_column(Integer, nullable=False)
     escrow_amount:          Mapped[float]    = mapped_column(Float, nullable=False)
     currency:               Mapped[str]      = mapped_column(String(8), default="USD")
-    deadline_at:            Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    deadline_at:            Mapped[datetime] = mapped_column(DateTime, nullable=False)
     contract_hash:          Mapped[str|None] = mapped_column(String(64))
-    created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     receipts:   Mapped[list[ReceiptModel]]    = relationship("ReceiptModel",    back_populates="contract", lazy="selectin")
     progress_receipts: Mapped[list[ProgressReceiptModel]] = relationship(
@@ -211,8 +130,8 @@ class ReceiptModel(Base):
     tool_name:     Mapped[str]      = mapped_column(String(256), nullable=False)
     input_hash:    Mapped[str]      = mapped_column(String(64), nullable=False)
     output_hash:   Mapped[str]      = mapped_column(String(64), nullable=False)
-    started_at:    Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
-    ended_at:      Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    started_at:    Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ended_at:      Mapped[datetime] = mapped_column(DateTime, nullable=False)
     duration_ms:   Mapped[int]      = mapped_column(Integer, nullable=False)
     status:        Mapped[str]      = mapped_column(String(16), nullable=False)
     error_message: Mapped[str|None] = mapped_column(Text)
@@ -240,11 +159,11 @@ class ProgressReceiptModel(Base):
     claimed_value_percent: Mapped[float]  = mapped_column(Float, nullable=False)
     evidence_hash:       Mapped[str]      = mapped_column(String(128), nullable=False)
     runtime_log_hash:    Mapped[str]      = mapped_column(String(128), nullable=False)
-    timestamp:           Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    timestamp:           Mapped[datetime] = mapped_column(DateTime, nullable=False)
     seller_signature:    Mapped[str]      = mapped_column(Text, nullable=False)
     validation_method:   Mapped[str]      = mapped_column(String(64), nullable=False)
     confirmation_status: Mapped[str]      = mapped_column(String(16), nullable=False, default="pending")
-    confirmed_at:        Mapped[datetime|None] = mapped_column(UTCDateTime)
+    confirmed_at:        Mapped[datetime|None] = mapped_column(DateTime)
 
     contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="progress_receipts")
 
@@ -268,7 +187,7 @@ class EvidenceBundleModel(Base):
     agent_signature:     Mapped[str|None] = mapped_column(Text)
     storage_path:        Mapped[str|None] = mapped_column(String(512))
     settlement_status:   Mapped[str]      = mapped_column(String(32), default="submitted")
-    created_at:          Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at:          Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -286,14 +205,13 @@ class SettlementModel(Base):
     client_agent_id:   Mapped[str]        = mapped_column(String(64), nullable=False)
     worker_agent_id:   Mapped[str|None]   = mapped_column(String(64))
     profile_id:        Mapped[str|None]   = mapped_column(String(64), nullable=True, index=True)
-    worker_profile_id: Mapped[str|None]   = mapped_column(String(64), nullable=True)
     released_amount:   Mapped[float|None] = mapped_column(Float)
     refunded_amount:   Mapped[float|None] = mapped_column(Float)
     dispute_reason:    Mapped[str|None]   = mapped_column(Text)
     arbitration_notes: Mapped[str|None]   = mapped_column(Text)
-    created_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    released_at:       Mapped[datetime|None] = mapped_column(UTCDateTime)
+    created_at:        Mapped[datetime]   = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:        Mapped[datetime]   = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    released_at:       Mapped[datetime|None] = mapped_column(DateTime)
 
     # On-chain fields (populated when settlement_mode != offchain)
     settlement_mode:      Mapped[str]       = mapped_column(String(16), default="offchain")
@@ -307,21 +225,11 @@ class SettlementModel(Base):
     onchain_buyer_bill_id: Mapped[int|None] = mapped_column(Integer, nullable=True)
     onchain_agent_bill_id: Mapped[int|None] = mapped_column(Integer, nullable=True)
     voucher_id:           Mapped[str|None]  = mapped_column(String(64), nullable=True)
-    delivery_deadline_at: Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
+    delivery_deadline_at: Mapped[datetime|None] = mapped_column(DateTime, nullable=True)
     progress_rule_spec:   Mapped[dict|None] = mapped_column(JSON, nullable=True)
-    # MVVS V1 确认窗口：交付时写入，窗口到期后可走 /auto-confirm 兜底。
-    confirm_window_hours: Mapped[int|None] = mapped_column(Integer, nullable=True)
-    confirm_deadline_at:  Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
     funding_source:       Mapped[str]        = mapped_column(String(16), nullable=False, default="internal")
 
     contract: Mapped[TaskContractModel] = relationship("TaskContractModel", back_populates="settlement")
-
-    # autosettle 每 15s 扫 `WHERE status='disputed' ORDER BY updated_at LIMIT n`
-    # (services/chain/escrow_autosettle.align_disputed_settlements)。没有这个复合索引
-    # 就是全表扫 + 排序，行数一涨这条对账路径就跟着涨。
-    __table_args__ = (
-        Index("ix_settlements_status_updated", "status", "updated_at"),
-    )
 
 
 class SettlementTransitionAuditModel(Base):
@@ -333,21 +241,12 @@ class SettlementTransitionAuditModel(Base):
     from_status:         Mapped[str | None] = mapped_column(String(32))
     to_status:           Mapped[str] = mapped_column(String(32), nullable=False)
     transition_allowed:  Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    guard_stage:         Mapped[str] = mapped_column(String(64), nullable=False, default="route")
+    guard_stage:         Mapped[str] = mapped_column(String(16), nullable=False, default="route")
     reason:              Mapped[str | None] = mapped_column(Text)
     route_path:          Mapped[str | None] = mapped_column(String(256))
     actor_id:            Mapped[str | None] = mapped_column(String(64))
     metadata_:           Mapped[dict] = mapped_column("metadata", JSON, default=dict)
-    created_at:          Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-
-    # 迁移 0017 声明了这两个索引，但模型里一直没写 —— 于是任何走 `create_all` 建库的
-    # 环境（含测试）都不会有它们，生产上也真的没有（2026-10-01 核对：只有 pkey）。
-    # 审计表只增不减，`/v1/settlement/{id}/transitions` 又按 task_id 查，缺索引就是
-    # 一条必然随时间劣化的路径。
-    __table_args__ = (
-        Index("ix_settlement_transition_audits_task_created", "task_id", "created_at"),
-        Index("ix_settlement_transition_audits_settlement_created", "settlement_id", "created_at"),
-    )
+    created_at:          Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +268,7 @@ class CapacityModel(Base):
     pending_settlement_credits:   Mapped[float]    = mapped_column(Float, default=0.0)
     burned_credits:               Mapped[float]    = mapped_column(Float, default=0.0)
     released_credits:             Mapped[float]    = mapped_column(Float, default=0.0)
-    updated_at:                   Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at:                   Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ProfileCapacityModel(Base):
@@ -389,121 +288,7 @@ class ProfileCapacityModel(Base):
     pending_settlement_credits:   Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
     disputed_credits:             Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
     released_credits:             Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
-    updated_at:                   Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class ChainLockModel(Base):
-    """One on-chain ``KarmaBilateral.lock()`` receipt, credited 1:1 to an identity.
-
-    This table is the only record of real USDC sitting in the contract, and the
-    ``capacity`` ledger is credited from these rows — so available credits can
-    never exceed the USDC a wallet actually deposited. ``bill_id`` /
-    ``lock_tx_hash`` are unique, which makes replaying a transaction a no-op.
-    """
-    __tablename__ = "chain_locks"
-
-    bill_id:          Mapped[str]      = mapped_column(String(80), primary_key=True)
-    identity_id:      Mapped[str]      = mapped_column(String(64), nullable=False, index=True)
-    wallet_address:   Mapped[str]      = mapped_column(String(64), nullable=False, index=True)
-    chain_id:         Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
-    contract_address: Mapped[str]      = mapped_column(String(64), nullable=False, default="")
-    token_address:    Mapped[str]      = mapped_column(String(64), nullable=False, default="")
-    amount_wei:       Mapped[str]      = mapped_column(String(80), nullable=False, default="0")
-    amount_usdc:      Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
-    lock_tx_hash:     Mapped[str]      = mapped_column(String(80), nullable=False, unique=True)
-    block_number:     Mapped[int|None] = mapped_column(Integer, nullable=True)
-    state:            Mapped[str]      = mapped_column(String(16), nullable=False, default="locked")
-    unlock_tx_hash:   Mapped[str|None] = mapped_column(String(80), nullable=True)
-    # Seller stake pool: an idle bill can be reserved by one accepted order.
-    stake_state:       Mapped[str]           = mapped_column(String(16), nullable=False, default="idle")
-    stake_task_id:     Mapped[str|None]      = mapped_column(String(64), nullable=True, index=True)
-    stake_reserved_at: Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
-    created_at:       Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:       Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class AllowanceCommitModel(Base):
-    """One on-chain ``KarmaAllowanceEscrow.commit()`` receipt (v2, non-custodial).
-
-    Nothing is deposited: the wallet keeps its USDC and only grants the escrow an
-    ERC-20 allowance, so ``amount_usdc`` is a *responsibility ceiling* rather than
-    a balance Karma holds. ``bill_id`` / ``commit_tx_hash`` are unique, which is
-    what makes replaying a transaction a no-op.
-    """
-    __tablename__ = "allowance_commits"
-
-    bill_id:          Mapped[str]        = mapped_column(String(80), primary_key=True)
-    identity_id:      Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
-    wallet_address:   Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
-    chain_id:         Mapped[int]        = mapped_column(Integer, nullable=False, default=0)
-    contract_address: Mapped[str]        = mapped_column(String(64), nullable=False, default="")
-    token_address:    Mapped[str]        = mapped_column(String(64), nullable=False, default="")
-    operator:         Mapped[str]        = mapped_column(String(64), nullable=False, default="")
-    amount_wei:       Mapped[str]        = mapped_column(String(80), nullable=False, default="0")
-    amount_usdc:      Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    spent_usdc:       Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    reserved_usdc:    Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    backed:           Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
-    # 这条承诺目前有多少已经被记进主身份 capacity 台账（v2 非托管锁仓的镜像）。
-    capacity_credited_usdc: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    commit_tx_hash:   Mapped[str]        = mapped_column(String(80), nullable=False, unique=True)
-    revoke_tx_hash:   Mapped[str|None]   = mapped_column(String(80), nullable=True)
-    block_number:     Mapped[int|None]   = mapped_column(Integer, nullable=True)
-    state:            Mapped[str]        = mapped_column(String(16), nullable=False, default="open")
-    last_synced_at:   Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
-    created_at:       Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:       Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class EscrowBindingModel(Base):
-    """One bound buyer/seller pair: the order Karma settles wallet-to-wallet.
-
-    ``state`` mirrors the contract (active/finalizing/settled/slashed/cancelled).
-    A row here records *intent and proof*; the transfer itself is executed by the
-    contract, straight from the payer's wallet to the payee's.
-    """
-    __tablename__ = "escrow_bindings"
-
-    binding_id:        Mapped[str]        = mapped_column(String(80), primary_key=True)
-    buyer_identity_id: Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
-    seller_identity_id: Mapped[str|None]  = mapped_column(String(64), nullable=True, index=True)
-    buyer_profile_id:  Mapped[str|None]   = mapped_column(String(64), nullable=True, index=True)
-    seller_profile_id: Mapped[str|None]   = mapped_column(String(64), nullable=True)
-    buyer_bill_id:     Mapped[str]        = mapped_column(String(80), nullable=False)
-    seller_bill_id:    Mapped[str]        = mapped_column(String(80), nullable=False)
-    #: 这条绑定落在哪台托管合约上。合约换地址（v2 升级到 v3）之后，绑定必须回到
-    #: **它自己那台**合约上收尾（finalize / cancel）：拿旧 binding id 去新合约问，
-    #: 合约根本不认识它（UnknownBinding），钱会被一次升级永久卡死。
-    contract_address:  Mapped[str]        = mapped_column(String(64), nullable=False, default="")
-    scope_hash:        Mapped[str]        = mapped_column(String(80), nullable=False, default="")
-    task_id:           Mapped[str|None]   = mapped_column(String(64), nullable=True, index=True)
-    amount_usdc:       Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    stake_usdc:        Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    state:             Mapped[str]        = mapped_column(String(16), nullable=False, default="active")
-    proof_hash:        Mapped[str|None]   = mapped_column(String(80), nullable=True)
-    bind_tx_hash:      Mapped[str|None]   = mapped_column(String(80), nullable=True, unique=True)
-    submit_tx_hash:    Mapped[str|None]   = mapped_column(String(80), nullable=True)
-    finalize_tx_hash:  Mapped[str|None]   = mapped_column(String(80), nullable=True)
-    pull_after:        Mapped[int|None]   = mapped_column(Integer, nullable=True)
-    #: 买方在链上打过「确认放款」标记的时刻（v4 ``buyerConfirm``）。有它就不必
-    #: 再等争议窗口：验证已过 + 买方自己点头，划款立刻可执行。
-    buyer_confirmed_at: Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
-    #: 台账自愈（``reconcile_from_chain``）**上一次来问过链**的时刻。
-    #: 那一遍原先按 ``created_at`` 取前 N 条：条数一多，第 N+1 条起**永远轮不到**
-    #: （2026-10-14 线上实测：65 条 active，每轮只看最老的 5 条）。改成
-    #: 「最久没问过的先问」之后，一轮一轮把所有绑定都盖到。NULL = 还没问过。
-    last_probed_at:    Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
-    created_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # autosettle 的每一次扫描都按 state 过滤、按 created_at 排序
-    # (due_bindings / due_breach_bindings / stranded_bindings / reconcile_from_chain)。
-    # `state` 此前完全没有索引。
-    __table_args__ = (
-        Index("ix_escrow_bindings_state_created", "state", "created_at"),
-        # 台账自愈的取数：按 state 过滤 + 「最久没问过的先问 + 从没问过的排最前」。
-        Index("ix_escrow_bindings_state_probed", "state", "last_probed_at"),
-    )
+    updated_at:                   Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class VoucherModel(Base):
@@ -520,21 +305,20 @@ class VoucherModel(Base):
     task_description_hash:      Mapped[str]      = mapped_column(String(128), nullable=False)
     progress_rule_hash:         Mapped[str]      = mapped_column(String(128), nullable=False)
     evidence_requirement_hash:  Mapped[str]      = mapped_column(String(128), nullable=False)
-    expiry_time:                Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    expiry_time:                Mapped[datetime] = mapped_column(DateTime, nullable=False)
     nonce:                      Mapped[str]      = mapped_column(String(128), nullable=False)
     buyer_signature:            Mapped[str]      = mapped_column(Text, nullable=False)
     status:                     Mapped[str]      = mapped_column(String(16), nullable=False, default="created")
     buyer_sub_identity_id:      Mapped[str|None] = mapped_column(String(64))
     seller_sub_identity_id:     Mapped[str|None] = mapped_column(String(64))
-    seller_profile_id:          Mapped[str|None] = mapped_column(String(64), nullable=True)
-    accepted_at:                Mapped[datetime|None] = mapped_column(UTCDateTime)
-    created_at:                 Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    accepted_at:                Mapped[datetime|None] = mapped_column(DateTime)
+    created_at:                 Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     progress_rule_spec:         Mapped[dict|None] = mapped_column(JSON, nullable=True)
     task_precision:             Mapped[float|None] = mapped_column(Float, nullable=True)
     payment_mode:               Mapped[str]      = mapped_column(String(16), nullable=False, default="manual")
     chain_anchor_hash:          Mapped[str|None] = mapped_column(String(128), nullable=True)
     rejection_reason:           Mapped[str|None] = mapped_column(Text, nullable=True)
-    rejected_at:                Mapped[datetime|None] = mapped_column(UTCDateTime, nullable=True)
+    rejected_at:                Mapped[datetime|None] = mapped_column(DateTime, nullable=True)
     rejected_by_identity_id:    Mapped[str|None] = mapped_column(String(64), nullable=True)
     task_id:                    Mapped[str|None] = mapped_column(String(64), nullable=True, index=True)
 
@@ -554,7 +338,7 @@ class VoucherEventModel(Base):
     actor_identity_id:     Mapped[str|None] = mapped_column(String(64), nullable=True)
     target_identity_id:    Mapped[str|None] = mapped_column(String(64), nullable=True)
     payload:               Mapped[dict]     = mapped_column(JSON, nullable=False, default=dict)
-    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -573,8 +357,8 @@ class IdentityProfileModel(Base):
     on_chain_did:           Mapped[str|None] = mapped_column(String(66), nullable=True, unique=True)
     projection_readonly:    Mapped[bool]     = mapped_column(Boolean, default=False)
     projection_source:      Mapped[str|None] = mapped_column(String(32), nullable=True)
-    created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class SubIdentityModel(Base):
@@ -585,8 +369,8 @@ class SubIdentityModel(Base):
     sub_identity_type:    Mapped[str]      = mapped_column(String(32), nullable=False)
     alias:                Mapped[str]      = mapped_column(String(64), nullable=False)
     status:               Mapped[str]      = mapped_column(String(16), nullable=False, default="active")
-    created_at:           Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    deleted_at:           Mapped[datetime|None] = mapped_column(UTCDateTime)
+    created_at:           Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    deleted_at:           Mapped[datetime|None] = mapped_column(DateTime)
 
     __table_args__ = (
         UniqueConstraint("parent_identity_id", "alias", name="uq_sub_identity_alias_per_parent"),
@@ -603,8 +387,8 @@ class ArbitrationPoolMemberModel(Base):
     arbitrator_identity_id: Mapped[str]      = mapped_column(String(64), primary_key=True)
     stake_amount:           Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
     status:                 Mapped[str]      = mapped_column(String(16), nullable=False, default="active")
-    joined_at:              Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    joined_at:              Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ArbitrationCaseModel(Base):
@@ -619,14 +403,9 @@ class ArbitrationCaseModel(Base):
     required_arbitrators:   Mapped[int]      = mapped_column(Integer, nullable=False, default=3)
     decided_outcome:        Mapped[str|None] = mapped_column(String(16))
     final_partial_percent:  Mapped[float|None] = mapped_column(Float)
-    # ④-A 上诉窗口：裁决下发后、放款之前的到期时刻。NULL = 没有窗口（立即执行）。
-    execute_after:          Mapped[datetime|None] = mapped_column(UTCDateTime)
-    # ④-A3 窗口内上诉：票按轮次计；appeal_count 记「被打回几次」（限次用）。
-    vote_round:             Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
-    appeal_count:           Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
-    created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    executed_at:            Mapped[datetime|None] = mapped_column(UTCDateTime)
+    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    executed_at:            Mapped[datetime|None] = mapped_column(DateTime)
 
 
 class ArbitrationAssignmentModel(Base):
@@ -635,7 +414,7 @@ class ArbitrationAssignmentModel(Base):
     assignment_id:            Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
     case_id:                  Mapped[str]      = mapped_column(String(64), ForeignKey("arbitration_cases.case_id"), nullable=False)
     arbitrator_identity_id:   Mapped[str]      = mapped_column(String(64), nullable=False)
-    assigned_at:              Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    assigned_at:              Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     status:                   Mapped[str]      = mapped_column(String(16), nullable=False, default="assigned")
 
     __table_args__ = (
@@ -656,7 +435,7 @@ class ArbitrationMaterialPackageModel(Base):
     package_hash:           Mapped[str]      = mapped_column(String(128), nullable=False)
     storage_uri:            Mapped[str|None] = mapped_column(String(512))
     format_version:         Mapped[str]      = mapped_column(String(32), nullable=False, default="arbitration-material-v1")
-    submitted_at:           Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    submitted_at:           Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("case_id", "package_hash", name="uq_arbitration_material_hash_per_case"),
@@ -672,16 +451,10 @@ class ArbitrationVoteModel(Base):
     decision:               Mapped[str]      = mapped_column(String(16), nullable=False)
     partial_percent:        Mapped[float|None] = mapped_column(Float)
     rationale:              Mapped[str|None] = mapped_column(Text)
-    # ④-A3 第几轮的票。老行一律 0（没有轮次概念的那些票就是第 0 轮）。
-    vote_round:             Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
-    voted_at:               Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    voted_at:               Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
-        # 同一仲裁员在**同一轮**只能投一票。轮次必须进约束：上诉把案子打回重审后，
-        # 同一批仲裁员得能再投一次，老的 (case_id, arbitrator) 会直接把重审堵死。
-        UniqueConstraint(
-            "case_id", "vote_round", "arbitrator_identity_id", name="uq_arbitration_vote_round"
-        ),
+        UniqueConstraint("case_id", "arbitrator_identity_id", name="uq_arbitration_vote"),
     )
 
 
@@ -693,7 +466,7 @@ class ArbitrationCaseEventModel(Base):
     event_type:             Mapped[str]      = mapped_column(String(32), nullable=False)
     detail:                 Mapped[str]      = mapped_column(Text, nullable=False)
     metadata_:              Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
-    created_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -711,7 +484,7 @@ class ResponsibilityEdgeModel(Base):
     task_id:               Mapped[str|None] = mapped_column(String(64))
     voucher_id:            Mapped[str|None] = mapped_column(String(64))
     metadata_:             Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
-    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("voucher_id", name="uq_responsibility_edge_voucher"),
@@ -729,7 +502,7 @@ class ResponsibilitySignalModel(Base):
     related_edge_hashes:   Mapped[list]     = mapped_column(JSON, nullable=False, default=list)
     task_id:               Mapped[str|None] = mapped_column(String(64))
     detail:                Mapped[str]      = mapped_column(Text, nullable=False)
-    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class ResponsibilityScanRunModel(Base):
@@ -740,7 +513,7 @@ class ResponsibilityScanRunModel(Base):
     execution_mode:        Mapped[str]      = mapped_column(String(16), nullable=False, default="sync")
     scan_mode:             Mapped[str]      = mapped_column(String(16), nullable=False, default="full")
     base_scan_id:          Mapped[str|None] = mapped_column(String(64))
-    incremental_since_at:  Mapped[datetime|None] = mapped_column(UTCDateTime)
+    incremental_since_at:  Mapped[datetime|None] = mapped_column(DateTime)
     requested_identity_ids: Mapped[list|None] = mapped_column(JSON)
     window_hours:          Mapped[int]      = mapped_column(Integer, nullable=False, default=24)
     max_hops:              Mapped[int]      = mapped_column(Integer, nullable=False, default=4)
@@ -749,20 +522,20 @@ class ResponsibilityScanRunModel(Base):
     retry_backoff_seconds: Mapped[int]      = mapped_column(Integer, nullable=False, default=30)
     current_attempt:       Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
     claimed_by:            Mapped[str|None] = mapped_column(String(64))
-    claimed_at:            Mapped[datetime|None] = mapped_column(UTCDateTime)
-    lease_expires_at:      Mapped[datetime|None] = mapped_column(UTCDateTime)
-    last_heartbeat_at:     Mapped[datetime|None] = mapped_column(UTCDateTime)
-    started_at:            Mapped[datetime|None] = mapped_column(UTCDateTime)
-    next_retry_at:         Mapped[datetime|None] = mapped_column(UTCDateTime)
+    claimed_at:            Mapped[datetime|None] = mapped_column(DateTime)
+    lease_expires_at:      Mapped[datetime|None] = mapped_column(DateTime)
+    last_heartbeat_at:     Mapped[datetime|None] = mapped_column(DateTime)
+    started_at:            Mapped[datetime|None] = mapped_column(DateTime)
+    next_retry_at:         Mapped[datetime|None] = mapped_column(DateTime)
     last_error:            Mapped[str|None] = mapped_column(Text)
-    cancelled_at:          Mapped[datetime|None] = mapped_column(UTCDateTime)
+    cancelled_at:          Mapped[datetime|None] = mapped_column(DateTime)
     cancel_reason:         Mapped[str|None] = mapped_column(Text)
-    dead_lettered_at:      Mapped[datetime|None] = mapped_column(UTCDateTime)
+    dead_lettered_at:      Mapped[datetime|None] = mapped_column(DateTime)
     dead_letter_reason:    Mapped[str|None] = mapped_column(Text)
     total_identities:      Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
     flagged_identities:    Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
-    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    completed_at:          Mapped[datetime|None] = mapped_column(UTCDateTime)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    completed_at:          Mapped[datetime|None] = mapped_column(DateTime)
 
 
 class ResponsibilityScanFindingModel(Base):
@@ -776,7 +549,7 @@ class ResponsibilityScanFindingModel(Base):
     signal_count:          Mapped[int]      = mapped_column(Integer, nullable=False)
     cycle_paths_detected:  Mapped[int]      = mapped_column(Integer, nullable=False, default=0)
     detail:                Mapped[str]      = mapped_column(Text, nullable=False)
-    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class ResponsibilityScanEventModel(Base):
@@ -787,7 +560,7 @@ class ResponsibilityScanEventModel(Base):
     event_type:            Mapped[str]      = mapped_column(String(32), nullable=False)
     detail:                Mapped[str]      = mapped_column(Text, nullable=False)
     metadata_:             Mapped[dict]     = mapped_column("metadata", JSON, default=dict)
-    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -804,9 +577,9 @@ class SecurityThresholdPolicyModel(Base):
     config:                Mapped[dict]     = mapped_column(JSON, nullable=False, default=dict)
     note:                  Mapped[str|None] = mapped_column(Text)
     created_by:            Mapped[str|None] = mapped_column(String(64))
-    created_at:            Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    activated_at:          Mapped[datetime|None] = mapped_column(UTCDateTime)
-    archived_at:           Mapped[datetime|None] = mapped_column(UTCDateTime)
+    created_at:            Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    activated_at:          Mapped[datetime|None] = mapped_column(DateTime)
+    archived_at:           Mapped[datetime|None] = mapped_column(DateTime)
     parent_policy_id:      Mapped[str|None] = mapped_column(String(64))
 
 
@@ -821,8 +594,8 @@ class SecurityPolicyChangeRequestModel(Base):
     rollout_percent:          Mapped[int|None] = mapped_column(Integer)
     note:                     Mapped[str|None] = mapped_column(Text)
     requested_by:             Mapped[str|None] = mapped_column(String(64))
-    requested_at:             Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    applied_at:               Mapped[datetime|None] = mapped_column(UTCDateTime)
+    requested_at:             Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    applied_at:               Mapped[datetime|None] = mapped_column(DateTime)
     required_approvals:       Mapped[int]      = mapped_column(Integer, nullable=False, default=2)
     dry_run_report:           Mapped[dict|None] = mapped_column(JSON)
 
@@ -839,7 +612,7 @@ class SecurityPolicyChangeApprovalModel(Base):
     approver_id:              Mapped[str]      = mapped_column(String(64), nullable=False)
     decision:                 Mapped[str]      = mapped_column(String(16), nullable=False)
     comment:                  Mapped[str|None] = mapped_column(Text)
-    created_at:               Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at:               Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("request_id", "approver_id", name="uq_security_policy_change_approver"),
@@ -860,7 +633,7 @@ class VerificationResultModel(Base):
     confidence:      Mapped[float]    = mapped_column(Float, nullable=False)
     checks:          Mapped[list]     = mapped_column(JSON, nullable=False)
     notes:           Mapped[str|None] = mapped_column(Text)
-    verified_at:     Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    verified_at:     Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # ---------------------------------------------------------------------------
@@ -885,7 +658,7 @@ class AgentAutomationPolicyModel(Base):
     high_risk_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="always")
     responsibility_acknowledged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     policy_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     updated_by_actor: Mapped[str | None] = mapped_column(String(128), nullable=True)
     preauth_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     allowed_task_types: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
@@ -914,12 +687,12 @@ class PaymentIntentModel(Base):
     amount: Mapped[str] = mapped_column(String(64), nullable=False)
     chain_id: Mapped[int] = mapped_column(Integer, nullable=False)
     policy_id: Mapped[str] = mapped_column(String(128), nullable=False)
-    expires_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     task_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     voucher_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     ap2_mandate_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class TradeOrderModel(Base):
@@ -938,8 +711,8 @@ class TradeOrderModel(Base):
     status_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     launch_idempotency_key: Mapped[str | None] = mapped_column(String(256), nullable=True, index=True, unique=True)
     pipeline_version: Mapped[str] = mapped_column(String(32), nullable=False, default="v2")
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class OpenclawHandoffAttestationModel(Base):
@@ -956,7 +729,7 @@ class OpenclawHandoffAttestationModel(Base):
     policy_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     handoff_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
     readiness_snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint(
@@ -975,88 +748,7 @@ class RuntimeKeyDailySpendModel(Base):
     key_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     spend_date: Mapped[str] = mapped_column(String(10), primary_key=True)
     amount_used: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class RuntimeKeyCallLogModel(Base):
-    """Runtime Key 的逐条调用记录 —— 「这把钥匙最近替我做了什么」。
-
-    额度表（``runtime_key_daily_spend``）只有汇总，回答不了「钱是被哪一次调用花掉的」。
-    这张表按请求逐条落账：agent 拿钥匙调了哪个动作端、结果如何、金额多少。
-    记的是「事」，不是「钱」：写入失败绝不影响请求本身（见 services/runtime_call_log.py）。
-    """
-
-    __tablename__ = "runtime_key_call_log"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    key_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    karma_identity_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    endpoint: Mapped[str] = mapped_column(String(64), nullable=False)
-    method: Mapped[str] = mapped_column(String(8), nullable=False, default="POST")
-    # ok / rejected（服务端按权限、额度、nonce、状态拒了）/ failed（异常）
-    outcome: Mapped[str] = mapped_column(String(16), nullable=False, default="ok")
-    http_status: Mapped[int] = mapped_column(Integer, nullable=False, default=200)
-    amount: Mapped[float | None] = mapped_column(Float, nullable=True)
-    detail: Mapped[str] = mapped_column(String(256), nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, index=True)
-
-
-class RuntimeNonceLogModel(Base):
-    """Runtime Key 的 nonce 台账 —— 重放保护 + 幂等回放，一行一次请求。
-
-    以前这层防线只在进程内存里（``runtime_key_service._replay``）：多 worker 部署
-    下每个 worker 各记一份，同一个 nonce 并行打到两个 worker 谁都拦不住。
-
-    更麻烦的是「客户端拿到 504 之后怎么办」。服务端其实已经执行完了（Sepolia 上
-    一笔 bind 就是一个区块，nginx 一超时就断开），调用方重发却只能拿到 409
-    duplicate —— 既判断不出成没成、也不敢再发（并发压测抓到的 P2）。
-
-    所以这一行记两件事：
-
-    * ``in_flight`` —— 有人正拿着这个 nonce 在跑，别插队；
-    * ``done``      —— 跑完了，第一次的响应原样存在这里，重发直接回放（并带一个
-                       ``idempotent_replay: true`` 标记，不假装是新的一笔）。
-
-    见 services/runtime_nonce_log.py。
-    """
-
-    __tablename__ = "runtime_nonce_log"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    key_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    endpoint: Mapped[str] = mapped_column(String(64), nullable=False)
-    nonce: Mapped[str] = mapped_column(String(128), nullable=False)
-    #: 请求体摘要：同一个 nonce 配不同的请求体 = 客户端拿错了 nonce，拒掉。
-    request_hash: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    #: in_flight / done
-    state: Mapped[str] = mapped_column(String(16), nullable=False, default="in_flight")
-    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    #: 第一次执行成功的响应（JSON 文本），幂等回放时原样返回。
-    payload: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, index=True)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    __table_args__ = (
-        UniqueConstraint("key_id", "endpoint", "nonce", name="uq_runtime_nonce_log"),
-    )
-
-
-class ConsoleNoticeModel(Base):
-    """操作台站内提醒：主人自己的钥匙/授权发生了什么，落库留痕。
-
-    邮件通道需要 SMTP 凭据（现网没有），所以「取消绑定之后要留个提醒」这件事
-    先落在站内：注销后会写一条，进操作台就能看见红点，点过才消。
-    """
-
-    __tablename__ = "console_notices"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    karma_identity_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
-    # key_unbound（主人亲手取消绑定）/ key_bound（agent 绑定生效）
-    kind: Mapped[str] = mapped_column(String(32), nullable=False)
-    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, index=True)
-    read_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class RuntimeKeyModel(Base):
@@ -1069,40 +761,18 @@ class RuntimeKeyModel(Base):
 
     key_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     secret_hash: Mapped[str] = mapped_column(String(256), nullable=False)
-    # secret_hash 是用哪一代 APP_SECRET_KEY 算的（16 位指纹）。双 key 轮换时
-    # 据此做惰性迁移：旧材料验过 → 用新材料重算并更新为当前代。
-    hash_key_version: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="legacy", server_default="legacy"
-    )
     wallet_address: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     karma_identity_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     profile_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     permissions: Mapped[list] = mapped_column(JSON, nullable=False)
     single_limit: Mapped[float] = mapped_column(Float, nullable=False)
     daily_limit: Mapped[float] = mapped_column(Float, nullable=False)
-    expire_at: Mapped[datetime] = mapped_column(UTCDateTime, nullable=False)
+    expire_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     agent_name: Mapped[str] = mapped_column(String(256), nullable=False)
     agent_binding: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    # 主人铸造这把钥匙时、写进钱包签名消息里的 agent 公钥指纹（16 位 hex）。
-    # 绑定那一刻拿 agent 交上来的公钥重算指纹比对：对不上 = 来绑的不是主人签字
-    # 授权的那个 agent，直接拒绝。NULL = 老钥匙，没有这层约束。
-    agent_public_key_fingerprint: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    # 这把 key 是「服务端托管」（认 key 不认人）还是「钉死在某个 agent 公钥上」（逐请求验签）。
-    key_binding: Mapped[str | None] = mapped_column(String(16), nullable=True, default="service")
-    # agent 的 Ed25519 裸公钥（base64，32 字节）。绑定后每个请求都要它验签。
-    agent_public_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    # 会动钱的权限（place_order / request_settlement）→ 每请求强制 nonce。
-    nonce_required: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
-    # 待确认的接入：agent 申请了绑定、但用户还没在操作台输入匹配码。
-    # 只有 pending_code_hash 对上（confirm_key_binding）才会写进 agent_public_key。
-    pending_agent_public_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    pending_code_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    pending_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    pending_attempts: Mapped[int | None] = mapped_column(Integer, nullable=True, default=0)
-    pending_requested_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 # ---------------------------------------------------------------------------
@@ -1125,302 +795,10 @@ class ReputationModel(Base):
     # Private fields stored here but only read by private runtime
     consecutive_successes: Mapped[int] = mapped_column(Integer, default=0)
     wash_trade_flags:      Mapped[int] = mapped_column(Integer, default=0)
-    last_updated: Mapped[datetime]     = mapped_column(UTCDateTime, default=datetime.utcnow)
-    last_incident_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    last_updated: Mapped[datetime]     = mapped_column(DateTime, default=datetime.utcnow)
+    last_incident_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_incident_kind: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    onchain_packed_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    onchain_packed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     onchain_packed_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     onchain_pack_tx: Mapped[str | None] = mapped_column(String(128), nullable=True)
     dividend_weight: Mapped[float] = mapped_column(Float, default=0.0)
-
-
-# ---------------------------------------------------------------------------
-# Master identity verification (证件 + 扫脸)
-# ---------------------------------------------------------------------------
-
-
-class IdentityVerificationModel(Base):
-    """主身份认证记录：只存密文包与摘要，永远不存证件 / 人脸明文。
-
-    浏览器端先用钱包签名派生的密钥做 AES-GCM 加密，服务端拿到的只有：密文包、
-    SHA-256 摘要、加密参数（算法 / KDF / 迭代 / 盐 / IV）以及用户确认过的脱敏字段。
-    核验记录本身不构成对外披露，披露要走 identity_disclosures 的显式授权。
-    """
-
-    __tablename__ = "identity_verifications"
-
-    identity_id:  Mapped[str]        = mapped_column(String(128), primary_key=True)
-    status:       Mapped[str]        = mapped_column(String(16), nullable=False, default="none")
-    level:        Mapped[str]        = mapped_column(String(16), nullable=False, default="basic")
-    doc_digest:   Mapped[str | None] = mapped_column(String(128), nullable=True)
-    face_digest:  Mapped[str | None] = mapped_column(String(128), nullable=True)
-    package_digest: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    package_cipher: Mapped[str | None] = mapped_column(Text, nullable=True)
-    encryption:   Mapped[dict]       = mapped_column(JSON, default=dict)
-    extracted:    Mapped[dict]       = mapped_column(JSON, default=dict)
-    # 第三方实名 / 活体服务商的核验状态（会话号、事件审计）。
-    # 只放脱敏的白名单字段：服务商那边自己发号（CertifyId / BizToken / inquiry id）、
-    # 结论、原因码；**不放**服务商回传的报文原文，也不放姓名 / 证件号。
-    provider:     Mapped[dict]       = mapped_column(JSON, default=dict)
-    reviewer_identity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    review_note:  Mapped[str | None] = mapped_column(String(2000), nullable=True)
-    verified_at:  Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    created_at:   Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:   Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-# ---------------------------------------------------------------------------
-# Data-API economy: verified subjects, published skills, metered usage
-#
-# 数据 API 是 Karma 第一个真正商业化的品类：调用方与提供方都是「有主体」的公司，
-# 单笔金额小、频次高。所以这一层要回答三件事：
-#   1. 这家公司是不是真的（主体资质 + 官网控制权）—— entity_verifications
-#   2. 这个技能是不是本人上架的（主体认证 + 钱包签名 + 域名归属）—— skills
-#   3. 累计到多少才划一次钱（小额高频累计，到阈值才结算）—— usage_meters / charges / settlements
-# ---------------------------------------------------------------------------
-
-
-class EntityVerificationModel(Base):
-    """主体资质认证：数据 API 提供方上架前必须先过的关。
-
-    与 ``identity_verifications``（自然人证件 + 扫脸）分开：这里认证的是**主体**
-    （企业 / 个体工商户）以及它对**官网**的控制权。资质原件同样只存密文包 + 摘要，
-    服务端永远拿不到明文 —— 与自然人认证同一套加密约定。
-    """
-
-    __tablename__ = "entity_verifications"
-
-    identity_id:      Mapped[str]        = mapped_column(String(128), primary_key=True)
-    status:           Mapped[str]        = mapped_column(String(16), nullable=False, default="none")
-    subject_type:     Mapped[str]        = mapped_column(String(16), nullable=False, default="business")
-    legal_name:       Mapped[str]        = mapped_column(String(200), nullable=False, default="")
-    registration_no:  Mapped[str]        = mapped_column(String(64), nullable=False, default="")
-    jurisdiction:     Mapped[str]        = mapped_column(String(64), nullable=False, default="")
-    legal_rep:        Mapped[str]        = mapped_column(String(120), nullable=False, default="")
-    official_domain:  Mapped[str]        = mapped_column(String(255), nullable=False, default="", index=True)
-    contact_email:    Mapped[str]        = mapped_column(String(200), nullable=False, default="")
-    service_category: Mapped[str]        = mapped_column(String(64), nullable=False, default="")
-    service_scope:    Mapped[str]        = mapped_column(Text, nullable=False, default="")
-    # 资质清单 [{kind, name, digest}]：只有名字与摘要，原件在密文包里。
-    certifications:   Mapped[list]       = mapped_column(JSON, default=list)
-    doc_digest:       Mapped[str | None] = mapped_column(String(128), nullable=True)
-    package_digest:   Mapped[str | None] = mapped_column(String(128), nullable=True)
-    package_cipher:   Mapped[str | None] = mapped_column(Text, nullable=True)
-    encryption:       Mapped[dict]       = mapped_column(JSON, default=dict)
-    extracted:        Mapped[dict]       = mapped_column(JSON, default=dict)
-    # 官网控制权：域名下放一份一次性 token，服务端回读比对。
-    website_token:        Mapped[str | None] = mapped_column(String(128), nullable=True)
-    website_challenge_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    website_verified_at:  Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    website_digest:       Mapped[str | None] = mapped_column(String(128), nullable=True)
-    reviewer_identity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    review_note:      Mapped[str | None] = mapped_column(String(2000), nullable=True)
-    verified_at:      Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    submitted_at:     Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    created_at:       Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:       Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class VerificationRevocationRequestModel(Base):
-    """认证撤销的「两人复核」申请：一名复核员发起，另一名复核员确认后才生效。
-
-    为什么要落库：撤销是消费者保护动作，要可追溯（谁、什么时候、因为什么发起，
-    谁确认的），也要能抗住进程重启。单人撤销会把「一把 verifier key 打掉竞争对手
-    认证」变成可行的 DoS，所以复核员必须两人；运维白名单（brake-only admin）可以
-    单人直接执行，见 services/compliance_revocation.py。
-    """
-
-    __tablename__ = "verification_revocation_requests"
-
-    revocation_id: Mapped[str]         = mapped_column(String(64), primary_key=True, default=_uuid)
-    #: entity_verification | role_profile_kyc
-    target_kind:   Mapped[str]         = mapped_column(String(24), nullable=False)
-    target_id:     Mapped[str]         = mapped_column(String(128), nullable=False, index=True)
-    proposed_by:   Mapped[str]         = mapped_column(String(128), nullable=False)
-    reason:        Mapped[str]         = mapped_column(String(2000), nullable=False)
-    proposed_at:   Mapped[datetime]    = mapped_column(UTCDateTime, default=datetime.utcnow)
-    confirmed_by:  Mapped[str | None]  = mapped_column(String(128), nullable=True)
-    confirmed_at:  Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    #: pending | executed | expired | superseded
-    status:        Mapped[str]         = mapped_column(String(16), nullable=False, default="pending")
-
-
-class SkillDeveloperModel(Base):
-    """技能开发者实名：一个可追责的自然人 + 开发者协议签名存证。
-
-    主体认证回答「这家公司是谁」，这里回答「操作这个身份的是哪个人」。一个身份可以有
-    多个开发者档案（每人一个钱包），上架时签名钱包必须命中其中一个**已通过复核**的档案
-    —— 见 services/developer_registry.assert_can_publish。签名只能由本人钱包签出，
-    ``signer_wallet`` 是 recover 出来的地址，不是客户端自报的。
-    """
-
-    __tablename__ = "skill_developers"
-
-    developer_id:      Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
-    identity_id:       Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
-    legal_name:        Mapped[str]      = mapped_column(String(200), nullable=False, default="")
-    real_name:         Mapped[str]      = mapped_column(String(64), nullable=False, default="")
-    role_title:        Mapped[str]      = mapped_column(String(64), nullable=False, default="")
-    contact_email:     Mapped[str]      = mapped_column(String(200), nullable=False, default="")
-    developer_role:    Mapped[str]      = mapped_column(String(32), nullable=False, default="developer")
-    agreement_version: Mapped[str]      = mapped_column(String(64), nullable=False, default="")
-    agreement_digest:  Mapped[str]      = mapped_column(String(64), nullable=False, default="")
-    signer_wallet:     Mapped[str | None] = mapped_column(String(128), nullable=True)
-    signature:         Mapped[str | None] = mapped_column(String(200), nullable=True)
-    # 材料清单 [{kind, name, digest}]+ 密文包：与主体认证同一套「只存密文 + 摘要」约定。
-    materials:         Mapped[list]     = mapped_column(JSON, default=list)
-    package_digest:    Mapped[str | None] = mapped_column(String(128), nullable=True)
-    package_cipher:    Mapped[str | None] = mapped_column(Text, nullable=True)
-    encryption:        Mapped[dict]     = mapped_column(JSON, default=dict)
-    extracted:         Mapped[dict]     = mapped_column(JSON, default=dict)
-    status:            Mapped[str]      = mapped_column(String(16), nullable=False, default="none", index=True)
-    reviewer_identity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
-    review_note:       Mapped[str | None] = mapped_column(String(2000), nullable=True)
-    verified_at:       Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    submitted_at:      Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    created_at:        Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:        Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class SkillModel(Base):
-    """技能 / 插件登记：一个可以被 agent 调用、按次计费的服务。
-
-    ``status`` 只有经过「主体已认证 + 上架签名由本人钱包签出 + endpoint 落在认证过的
-    官网域名下」才会变成 ``published``（见 services/skill_registry）。
-    """
-
-    __tablename__ = "skills"
-
-    skill_id:          Mapped[str]      = mapped_column(String(64), primary_key=True, default=_uuid)
-    owner_identity_id: Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
-    slug:              Mapped[str]      = mapped_column(String(80), nullable=False, unique=True)
-    name:              Mapped[str]      = mapped_column(String(120), nullable=False)
-    category:          Mapped[str]      = mapped_column(String(64), nullable=False, default="data_api")
-    summary:           Mapped[str]      = mapped_column(String(300), nullable=False, default="")
-    description:       Mapped[str]      = mapped_column(Text, nullable=False, default="")
-    endpoint_url:      Mapped[str]      = mapped_column(String(500), nullable=False)
-    method:            Mapped[str]      = mapped_column(String(8), nullable=False, default="POST")
-    unit:              Mapped[str]      = mapped_column(String(32), nullable=False, default="call")
-    unit_price_usdc:   Mapped[float]    = mapped_column(Float, nullable=False, default=0.0)
-    settlement_threshold_usdc: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
-    default_cap_usdc:  Mapped[float | None]  = mapped_column(Float, nullable=True)
-    version:           Mapped[int]      = mapped_column(Integer, nullable=False, default=1)
-    manifest_digest:   Mapped[str]      = mapped_column(String(64), nullable=False, default="")
-    publisher_signature: Mapped[str | None] = mapped_column(String(200), nullable=True)
-    publisher_wallet:  Mapped[str | None] = mapped_column(String(128), nullable=True)
-    verified_domain:   Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # 上架时签名钱包对应的开发者实名档案（SKILL_REQUIRE_DEVELOPER_VERIFICATION 关掉时为空）。
-    developer_id:      Mapped[str | None] = mapped_column(String(64), nullable=True)
-    status:            Mapped[str]      = mapped_column(String(16), nullable=False, default="draft", index=True)
-    published_at:      Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    paused_at:         Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    created_at:        Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:        Mapped[datetime] = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class UsageMeterModel(Base):
-    """(付款方, 技能) 的累计计费器：小额高频先记账，到阈值才生成一张结算单。
-
-    钱不在这一步动 —— 这一步只回答「这个调用方一共欠这个技能多少钱」。
-    ``cap_usdc`` 是边界：付到这个数就拒绝继续调用（相当于子身份额度）。
-    """
-
-    __tablename__ = "usage_meters"
-
-    meter_id:           Mapped[str]        = mapped_column(String(64), primary_key=True, default=_uuid)
-    skill_id:           Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
-    payer_identity_id:  Mapped[str]        = mapped_column(String(128), nullable=False, index=True)
-    provider_identity_id: Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
-    calls:              Mapped[int]        = mapped_column(Integer, nullable=False, default=0)
-    accrued_usdc:       Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    billed_usdc:        Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    settled_usdc:       Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    threshold_usdc:     Mapped[float]      = mapped_column(Float, nullable=False, default=1.0)
-    cap_usdc:           Mapped[float | None] = mapped_column(Float, nullable=True)
-    status:             Mapped[str]        = mapped_column(String(24), nullable=False, default="open")
-    last_used_at:       Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    created_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
-    updated_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    __table_args__ = (
-        UniqueConstraint("skill_id", "payer_identity_id", name="uq_usage_meter_skill_payer"),
-    )
-
-
-class UsageChargeModel(Base):
-    """一次调用 = 一条流水。(skill_id, request_id) 唯一 —— 重放不会重复计费。"""
-
-    __tablename__ = "usage_charges"
-
-    charge_id:          Mapped[str]        = mapped_column(String(64), primary_key=True, default=_uuid)
-    request_id:         Mapped[str]        = mapped_column(String(80), nullable=False)
-    skill_id:           Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
-    payer_identity_id:  Mapped[str]        = mapped_column(String(128), nullable=False, index=True)
-    provider_identity_id: Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
-    units:              Mapped[int]        = mapped_column(Integer, nullable=False, default=1)
-    unit_price_usdc:    Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    amount_usdc:        Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    settlement_id:      Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    occurred_at:        Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
-    created_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
-
-    __table_args__ = (
-        UniqueConstraint("skill_id", "request_id", name="uq_usage_charge_skill_request"),
-    )
-
-
-class UsageSettlementModel(Base):
-    """阈值结算单：把一段累计的调用打包成一笔真实划转。
-
-    ``mode`` 说明这笔钱走哪条路：``escrow_allowance`` 走 Karma 现有的非托管授权划转
-    （调用方的锁仓 → 提供方钱包），``manual`` 表示先出账、由运营/多签合约执行。
-    """
-
-    __tablename__ = "usage_settlements"
-
-    settlement_id:      Mapped[str]        = mapped_column(String(64), primary_key=True, default=_uuid)
-    skill_id:           Mapped[str]        = mapped_column(String(64), nullable=False, index=True)
-    payer_identity_id:  Mapped[str]        = mapped_column(String(128), nullable=False, index=True)
-    provider_identity_id: Mapped[str]      = mapped_column(String(128), nullable=False, index=True)
-    amount_usdc:        Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    stake_usdc:         Mapped[float]      = mapped_column(Float, nullable=False, default=0.0)
-    calls:              Mapped[int]        = mapped_column(Integer, nullable=False, default=0)
-    status:             Mapped[str]        = mapped_column(String(16), nullable=False, default="open", index=True)
-    mode:               Mapped[str]        = mapped_column(String(24), nullable=False, default="escrow_allowance")
-    digest:             Mapped[str]        = mapped_column(String(64), nullable=False, default="")
-    escrow_binding_id:  Mapped[str | None] = mapped_column(String(64), nullable=True)
-    tx_hash:            Mapped[str | None] = mapped_column(String(80), nullable=True)
-    failure_reason:     Mapped[str | None] = mapped_column(String(500), nullable=True)
-    created_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow)
-    settled_at:         Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    updated_at:         Mapped[datetime]   = mapped_column(UTCDateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-class RuntimeSafetyModeModel(Base):
-    """刹车开关的落库状态 —— 单行（``id=1``）。
-
-    以前这一份状态只在进程内存里（``services/runtime_safety.py`` 的模块级
-    ``_STATE``）：容器一重建/OOM 重启，之前手动或自动拉下的刹车就自己弹回「关」，
-    正好在最需要它的时刻失效；多 worker 时更是各记一份。
-
-    这里只存**开关本身**（enabled / reason / triggered_by / triggered_at /
-    四个 pause_*）。容量锚的遥测（``last_anchor_audit_at`` / ``total_locked_usdc``
-    / ``total_bill_credits``）每次审计都要重算，不进库 —— 否则每一笔动钱的请求
-    都会多写一次库。
-
-    见 migration ``0060_runtime_safety_mode`` 与 ``services/runtime_safety.py``。
-    """
-
-    __tablename__ = "runtime_safety_mode"
-
-    id:                  Mapped[int]        = mapped_column(Integer, primary_key=True, autoincrement=False)
-    enabled:             Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
-    reason:              Mapped[str | None] = mapped_column(String(512), nullable=True)
-    triggered_by:        Mapped[str | None] = mapped_column(String(128), nullable=True)
-    triggered_at:        Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    # 最近一次**人工**放闸的时刻（migration 0065）。自动刹车拿它做迟滞：比人工放闸更早的
-    # 拒绝不许再自动把闸拉回去。列名/类型要和 migration 逐字对应，改一边必须改另一边。
-    manual_override_at:  Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
-    pause_new_lock:      Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
-    pause_new_authorization: Mapped[bool]   = mapped_column(Boolean, nullable=False, default=False)
-    pause_new_task:      Mapped[bool]       = mapped_column(Boolean, nullable=False, default=False)
-    pause_new_settlement: Mapped[bool]      = mapped_column(Boolean, nullable=False, default=False)
-    updated_at:          Mapped[datetime]   = mapped_column(UTCDateTime, nullable=False, default=datetime.utcnow)

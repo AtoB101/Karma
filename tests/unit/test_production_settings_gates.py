@@ -28,12 +28,8 @@ def _prod_kwargs(**overrides):
         trade_launch_require_eip712=True,
         karma_signing_backend="client_only",
         x402_payment_backend="sepolia",
-        x402_private_key="0x" + "11" * 32,
-        x402_allow_private_hosts=False,
         arbitrator_actor_ids="arb-1",
         chain_allow_hot_wallet_payer=False,
-        verifier_require_node_signature=True,
-        verifier_require_owner_identity=True,
     )
     base.update(overrides)
     return base
@@ -58,30 +54,9 @@ def test_production_accepts_full_gates():
         ("x402_payment_backend", "mock"),
         ("arbitrator_actor_ids", ""),
         ("chain_allow_hot_wallet_payer", True),
-        ("registration_require_funding", False),
-        # 仲裁员的抵押必须覆盖案值：生产环境不允许把倍数调到 1.0 以下
-        ("arbitration_stake_coverage_multiple", 0.5),
-        # 没有真实锁仓背书的「质押」不算抵押
-        ("arbitration_require_backed_stake", False),
-        # 没有节点 key 签名的写接口 = 谁登录谁能替别人登记节点 / 改质押 / 出证
-        ("verifier_require_node_signature", False),
-        # 匿名节点 = 押金与责任脱钩：生产必须声明主人身份
-        ("verifier_require_owner_identity", False),
     ],
 )
 def test_production_rejects_disabled_gate(field, value):
     kw = _prod_kwargs(**{field: value})
     with pytest.raises(ValueError, match="production"):
-        Settings(**kw)
-
-
-def test_production_rejects_x402_private_hosts():
-    kw = _prod_kwargs(x402_allow_private_hosts=True)
-    with pytest.raises(ValueError, match="X402_ALLOW_PRIVATE_HOSTS"):
-        Settings(**kw)
-
-
-def test_production_rejects_x402_backend_without_a_key():
-    kw = _prod_kwargs(x402_private_key="")
-    with pytest.raises(ValueError, match="X402_PRIVATE_KEY"):
         Settings(**kw)

@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, model_validator
 from sqlalchemy.exc import IntegrityError
 
 from core.schemas import (
@@ -17,7 +17,6 @@ from core.schemas import (
 from db.models.orm import CapacityModel, SubIdentityModel, VoucherModel
 from db.session import get_db
 from services.capacity_ledger import assert_capacity_invariants
-from services.identity_activation import assert_activated
 from services.runtime_safety import (
     assert_runtime_operation_allowed,
     audit_capacity_anchor_and_maybe_trip,
@@ -39,7 +38,6 @@ def _as_utc(dt: datetime) -> datetime:
 
 
 class CreateVoucherRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     buyer_identity_id: str
     seller_identity_id: str
     amount: float
@@ -75,15 +73,12 @@ class CreateVoucherRequest(BaseModel):
 
 
 class VerifyVoucherRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     seller_identity_id: str
     expected_amount: float | None = None
 
 
 class AcceptVoucherRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")  # P2-10: 未知字段直接报错，不静默丢弃
     seller_identity_id: str
-    seller_profile_id: str | None = None
 
 
 @router.post("", response_model=AuthorizationVoucher, status_code=201)
@@ -292,20 +287,12 @@ async def accept_voucher(voucher_id: str, body: AcceptVoucherRequest, request: R
     assert_runtime_operation_allowed("new_authorization")
     await audit_capacity_anchor_and_maybe_trip(db=db)
     require_ledger_identity(request, body.seller_identity_id)
-    # 未激活的主身份不能接单：卖家得先完成本人实名认证（证件 + 刷脸）。
-    await assert_activated(db, body.seller_identity_id, action="accepting an order")
     row = await db.get(VoucherModel, voucher_id)
     if not row:
         raise HTTPException(404, f"Voucher {voucher_id} not found")
     from services.voucher_lifecycle import accept_voucher_row
 
-    row = await accept_voucher_row(
-        db,
-        row,
-        seller_identity_id=body.seller_identity_id,
-        actor="api",
-        seller_profile_id=body.seller_profile_id,
-    )
+    row = await accept_voucher_row(db, row, seller_identity_id=body.seller_identity_id, actor="api")
     return _to_schema(row)
 
 

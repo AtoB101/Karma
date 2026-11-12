@@ -13,7 +13,6 @@ Start at the root [README.md](../README.md) for the repo map.
 | [integration-guide.md](./integration-guide.md) | Public integration surface |
 | [AGENT_INTEGRATION.md](./AGENT_INTEGRATION.md) | Agent / runtime integration |
 | [AGENT_ONE_CLICK_CONNECT_V1.md](./AGENT_ONE_CLICK_CONNECT_V1.md) | One-click vertical connect |
-| [AGENT_PAIRING_V1.md](./AGENT_PAIRING_V1.md) | Agent 配对接入 v1（agent 自己领凭据，一次性交付） |
 | [PILOT_E2E_PATH.md](./PILOT_E2E_PATH.md) | **Canonical Sepolia Bilateral E2E** (lock→finalize) |
 | [AGENT_TO_AGENT_TEST.md](./AGENT_TO_AGENT_TEST.md) | **Agent↔agent land** (Phase-1 launch → execution_started) |
 
@@ -57,7 +56,6 @@ Start at the root [README.md](../README.md) for the repo map.
 | [KARMA_BFF_OPENMANUS_INTEGRATION.md](./KARMA_BFF_OPENMANUS_INTEGRATION.md) | OpenManus BFF |
 | [OPENCLAW_P1_DUAL_AGENT.md](./OPENCLAW_P1_DUAL_AGENT.md) | OpenClaw |
 | [mcp-adapter-guide.md](./mcp-adapter-guide.md) | MCP |
-| [mcp/karma-mcp-platform-adapters.md](./mcp/karma-mcp-platform-adapters.md) | 跨平台聊天适配器（Telegram / WhatsApp） |
 
 ## Security & acceptance
 
@@ -66,8 +64,6 @@ Start at the root [README.md](../README.md) for the repo map.
 | [SECURITY_DISCLOSURE.md](./SECURITY_DISCLOSURE.md) | Vulnerability disclosure |
 | [SECURITY_INCIDENT_PLAYBOOK.md](./SECURITY_INCIDENT_PLAYBOOK.md) | Incident response |
 | [SECURITY_RELEASE_GATES.md](./SECURITY_RELEASE_GATES.md) | Release gates |
-| [SECURITY_THRESHOLD_POLICY.md](./SECURITY_THRESHOLD_POLICY.md) | 安全阈值策略钉版（Gate B 的 `B5`/`B6`/`B7` + `E7`） |
-| [KEY_ROTATION.md](./KEY_ROTATION.md) | 密钥轮换台账 + 操作手册（Gate A 的 `A2b` 凭据） |
 | [security-boundary.md](./security-boundary.md) | Public/private boundary |
 | [STRESS_TEST_RUNBOOK.md](./STRESS_TEST_RUNBOOK.md) | Stress procedures |
 | [ADVERSARIAL_FULLCHAIN_AUDIT_V1.md](./ADVERSARIAL_FULLCHAIN_AUDIT_V1.md) | Full-chain adversarial |
@@ -79,7 +75,6 @@ Start at the root [README.md](../README.md) for the repo map.
 | Doc | Purpose |
 |-----|---------|
 | [DEPLOYMENT.md](./DEPLOYMENT.md) | Deploy |
-| [DECENTRALIZED_CONSOLE_V1.md](./DECENTRALIZED_CONSOLE_V1.md) | Console distribution + node layer (L1/L2) |
 | [FOCUS_ROADMAP.md](./FOCUS_ROADMAP.md) | Near-term focus |
 | [wallet-signature-payload-examples.json](./wallet-signature-payload-examples.json) | Wallet payload examples |
 | [testnet-integration-checklist.md](./testnet-integration-checklist.md) | Integration checklist |

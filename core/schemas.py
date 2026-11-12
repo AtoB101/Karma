@@ -189,9 +189,6 @@ class ArbitrationEventType(str, Enum):
     VOTE_CAST = "vote_cast"
     CASE_DECIDED = "case_decided"
     CASE_EXECUTED = "case_executed"
-    CASE_EXECUTE_SCHEDULED = "case_execute_scheduled"
-    CASE_APPEAL_OPENED = "case_appeal_opened"
-    CASE_OVERTURNED = "case_overturned"
 
 
 class ResponsibilityEdgeType(str, Enum):
@@ -512,10 +509,6 @@ class SettlementState(BaseModel):
         default=None,
         description="Identity role profile this settlement belongs to (P1 multi-profile)",
     )
-    worker_profile_id: Optional[str] = Field(
-        default=None,
-        description="收款方（卖方）的角色档案 id —— 收付中心按子身份拆收入用",
-    )
     released_amount: Optional[float] = None
     refunded_amount: Optional[float] = None
     dispute_reason: Optional[str] = None
@@ -535,11 +528,6 @@ class SettlementState(BaseModel):
     tx_hash: Optional[str] = Field(default=None, description="On-chain settlement transaction hash")
     evidence_bundle_hash: Optional[str] = Field(default=None, description="keccak256 of evidence bundle submitted on-chain")
     onchain_status: Optional[str] = Field(default=None, description="pending | confirmed | failed")
-    onchain_binding_id: Optional[int] = Field(
-        default=None, description="托管合约上的 binding id（这一单的钱由它背书）"
-    )
-    onchain_buyer_bill_id: Optional[int] = Field(default=None, description="付款方链上账单 id")
-    onchain_agent_bill_id: Optional[int] = Field(default=None, description="提供方质押账单 id")
     quote_id: Optional[str] = Field(default=None, description="EIP-712 quoteId used in settlement tx")
     voucher_id: Optional[str] = Field(default=None, description="Linked authorization voucher after seller accept")
     delivery_deadline_at: Optional[datetime] = Field(
@@ -729,11 +717,6 @@ class ArbitrationCase(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     executed_at: Optional[datetime] = None
-    # ④-A 上诉窗口的到期时刻：非空表示「已下发、还没放款」。
-    execute_after: Optional[datetime] = None
-    # ④-A3 窗口内上诉：票按轮次计；上诉把案子打回 voting 并开新一轮。
-    vote_round: int = Field(default=0, ge=0)
-    appeal_count: int = Field(default=0, ge=0)
 
 
 class ArbitrationAssignment(BaseModel):
@@ -852,9 +835,6 @@ class SecurityOpsAlertType(str, Enum):
     PRIVATE_RUNTIME_ERROR_RATE = "private_runtime_error_rate"
     SETTLEMENT_TRANSITION_DENIED_SPIKE = "settlement_transition_denied_spike"
     SETTLEMENT_TRANSITION_DENIED_RATE = "settlement_transition_denied_rate"
-    # 链上腿失败（迁移合法、链上那一步没成、钱没动、autosettle 每轮重试）——
-    # 与上面两条「状态机拒绝」分开：它不接自动刹车，只报出来给人查。
-    SETTLEMENT_TRANSITION_CHAIN_GATE_SPIKE = "settlement_transition_chain_gate_spike"
     AUTH_FAILURE_BASELINE_DRIFT = "auth_failure_baseline_drift"
     RATE_LIMIT_BASELINE_DRIFT = "rate_limit_baseline_drift"
     PRIVATE_RUNTIME_ERROR_BASELINE_DRIFT = "private_runtime_error_baseline_drift"
@@ -897,24 +877,14 @@ class SecurityOpsSummary(BaseModel):
     failed_auth_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     failed_auth_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     failed_auth_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)
-    #: 失败来源（真实客户端 IP）。一个来源 vs 很多来源，是「过期会话轮询」和
-    #: 「分布式撞密钥」的分水岭 —— 2026-10-13 补。
-    failed_auth_by_source: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     rate_limited_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     rate_limited_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     rate_limited_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     private_runtime_error_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     private_runtime_error_by_route_group: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     settlement_transition_total_count: int = 0
-    #: 只数「状态机本来就禁止这一步」（denial_class=state_machine）；链上腿失败在
-    #: ``settlement_transition_chain_gate_denied_count``，别混。
     settlement_transition_denied_count: int = 0
     settlement_transition_denied_rate: float = 0.0
-    #: 链上腿失败涉及的**单子数**（按 task 去重，autosettle 重试多少次都算一条）。
-    settlement_transition_chain_gate_denied_count: int = 0
-    #: 所有被拒事件的 denial_class 分布（state_machine / chain_gate / store_conflict），
-    #: 给运维一眼看清「拒绝到底是哪一种」。
-    settlement_transition_denied_by_class: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     settlement_transition_denied_by_path: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     settlement_transition_denied_by_actor: list[SecurityOpsDimensionCount] = Field(default_factory=list)
     settlement_transition_denied_by_guard_stage: list[SecurityOpsDimensionCount] = Field(default_factory=list)
@@ -1056,11 +1026,6 @@ class RuntimeSafetyModeState(BaseModel):
     reason: Optional[str] = None
     triggered_by: Optional[str] = None
     triggered_at: Optional[datetime] = None
-    #: 最近一次**人工**把闸放回「不拦」的时刻（走 /v1/admin/controls/* 或
-    #: /v1/security/runtime/safety-mode）。自动刹车不许用比它更早的证据再把闸拉回去 ——
-    #: 否则人工清闸等于白清：窗口里那批旧事件还在，下一轮轮询立刻又点着（2026-10-13
-    #: 线上实测「清闸 2 分钟后又跳回」）。见 api/routes/security.py 的迟滞判断。
-    manual_override_at: Optional[datetime] = None
     pause_new_lock: bool = False
     pause_new_authorization: bool = False
     pause_new_task: bool = False

@@ -12,23 +12,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from config.settings import settings
 from db.models.orm import SettlementModel
 
 OWNER = {"X-Karma-Identity-Id": "owner-1"}
 PARTY = {"X-Karma-Identity-Id": "party-x"}
 STRANGER = {"X-Karma-Identity-Id": "stranger"}
 VERIFIER = {"X-Karma-Identity-Id": "verifier-1"}
-
-
-@pytest.fixture(autouse=True)
-def _allow_governance_roles(monkeypatch):
-    """verifier / arbitrator 默认不许自助开通（防自助提权）。
-
-    这个文件测的是角色档案本身，所以把用到的身份放进运维白名单；
-    「不给白名单就必须 403」这件事在 tests/integration/test_developer_api.py 覆盖。
-    """
-    monkeypatch.setattr(settings, "governance_verifier_ids", "verifier-1,owner-1")
 
 
 async def _create_profile(client: AsyncClient, *, class_: str, owner: str = "owner-1") -> dict:
@@ -66,12 +55,7 @@ async def test_profile_list_get_update(client: AsyncClient):
 
     r = await client.get("/v1/identity/role-profiles?owner_identity_id=owner-1", headers=OWNER)
     assert r.status_code == 200
-    body = r.json()
-    # 不假设「全库 owner-1 名下只有这一条」：会话级共享 DB 里别的用例也可能往同一个
-    # owner 写过档案（见 tests/conftest.py 的 ``_purge_shared_test_db``）。这里只钉
-    # 「刚建的那条在列表里，且列表里都是 owner-1 的档案」。
-    assert p["profile_id"] in {row["profile_id"] for row in body["profiles"]}
-    assert {row["owner_identity_id"] for row in body["profiles"]} == {"owner-1"}
+    assert r.json()["total"] == 1
 
     r = await client.get(f"/v1/identity/role-profiles/{p['profile_id']}", headers=OWNER)
     assert r.status_code == 200
@@ -292,122 +276,3 @@ async def test_kyc_invalid_transition(client: AsyncClient):
         headers=VERIFIER,
     )
     assert r.status_code == 409
-
-
-# ---------------------------------------------------------------------------
-# 个体助理认证（操作台「身份 · 认证 → 个体助理认证」）
-# ---------------------------------------------------------------------------
-
-
-def _sole_payload(**over) -> dict:
-    payload = {
-        "kind": "sole_proprietor",
-        "consent": True,
-        "business_name": "张三小吃店",
-        "operator_name": "张三",
-        "registration_no": "92330100MA2ABCDE12",
-        "region": "浙江省杭州市西湖区",
-        "business_scope": "餐饮服务；预包装食品销售",
-        "main_products": "手冲咖啡豆、门店自提",
-        "business_address": "杭州市西湖区文三路 1 号",
-        "contact_phone": "13800000000",
-        "contact_email": "zhangsan@example.com",
-        "docs": [{"kind": "BUSINESS_LICENSE", "name": "营业执照（副本）", "digest": "a" * 64}],
-        "doc_digest": "b" * 64,
-        "package_digest": "c" * 64,
-        "package_cipher": "Q0lQSEVSVEVYVA" * 8,
-        "encryption": {
-            "algo": "AES-GCM-256",
-            "kdf": "PBKDF2-SHA256",
-            "iterations": 250000,
-            "salt_b64": "c2FsdHNhbHRzYWx0c2FsdA==",
-            "iv_b64": "aXZpdml2aXZpdg==",
-            "key_wrap": "wallet-signature-v1",
-        },
-    }
-    payload.update(over)
-    return payload
-
-
-@pytest.mark.asyncio
-async def test_sole_proprietor_certification_payload_is_accepted(client: AsyncClient):
-    """操作台个体认证页提交的载荷形状要能被服务端照收：
-    声明字段（经营范围 / 主营产品 / 经营地址）+ 资质清单 + 密文包，一个都不能在路上掉。"""
-    p = await _create_profile(client, class_="merchant")
-    pid = p["profile_id"]
-
-    r = await client.post(
-        f"/v1/identity/role-profiles/{pid}/kyc",
-        json={"kyc_payload": _sole_payload()},
-        headers=OWNER,
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["kyc_status"] == "pending"
-    stored = body["kyc_payload"]
-    assert stored["kind"] == "sole_proprietor"
-    assert stored["business_scope"] == "餐饮服务；预包装食品销售"
-    assert stored["main_products"] == "手冲咖啡豆、门店自提"
-    assert stored["business_address"] == "杭州市西湖区文三路 1 号"
-    assert stored["docs"][0]["kind"] == "BUSINESS_LICENSE"
-    assert stored["package_cipher"] == "Q0lQSEVSVEVYVA" * 8
-
-
-@pytest.mark.asyncio
-async def test_sole_proprietor_certification_still_rejects_plaintext_originals(client: AsyncClient):
-    """声明字段放开了，红线没放开：营业执照原图 / 证件明文照旧 400。
-
-    三种夹带方式各测一次，因为判定本来就是三条不同的规则：
-    1) 键名直接叫 image / 照片；
-    2) 值是个 data URL；
-    3) 换了键名、值是一整块裸 base64（原地换层皮）。
-    """
-    p = await _create_profile(client, class_="merchant")
-    pid = p["profile_id"]
-
-    async def submit(payload):
-        return await client.post(
-            f"/v1/identity/role-profiles/{pid}/kyc",
-            json={"kyc_payload": payload},
-            headers=OWNER,
-        )
-
-    r = await submit(_sole_payload(image="x"))
-    assert r.status_code == 400 and "image" in r.json()["detail"], r.text
-
-    r = await submit(_sole_payload(photo="data:image/png;base64,AAAA"))
-    assert r.status_code == 400, r.text
-
-    r = await submit(_sole_payload(docs=[{"kind": "BUSINESS_LICENSE", "name": "营业执照", "b64": "A" * 5000}]))
-    assert r.status_code == 400 and "base64" in r.json()["detail"], r.text
-
-    # 全程被拒，状态没被推着往前走
-    row = await client.get(f"/v1/identity/role-profiles/{pid}", headers=OWNER)
-    assert row.json()["kyc_status"] == "none"
-
-@pytest.mark.asyncio
-async def test_unknown_status_is_rejected(client: AsyncClient):
-    """G8：status 只认 active / disabled，别的一律 422（以前是自由字符串）。"""
-    r = await client.post(
-        "/v1/identity/role-profiles",
-        json={"owner_identity_id": "owner-1", "class": "individual", "status": "admin"},
-        headers=OWNER,
-    )
-    assert r.status_code == 422, r.text
-
-    p = await _create_profile(client, class_="individual")
-    r2 = await client.put(
-        f"/v1/identity/role-profiles/{p['profile_id']}",
-        json={"status": "root"},
-        headers=OWNER,
-    )
-    assert r2.status_code == 422, r2.text
-
-    ok = await client.put(
-        f"/v1/identity/role-profiles/{p['profile_id']}",
-        json={"status": "disabled"},
-        headers=OWNER,
-    )
-    assert ok.status_code == 200, ok.text
-    assert ok.json()["status"] == "disabled"
-

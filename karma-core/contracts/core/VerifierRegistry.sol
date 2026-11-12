@@ -12,9 +12,6 @@ interface IStakingToken {
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
     function transfer(address to, uint256 amount) external returns (bool);
 }
-interface IScoringEngine {
-    function recordVerifierSlashed(address verifier) external;
-}
 
 contract VerifierRegistry {
     // ──────────────────────────────────── Errors ──────────────────────────────
@@ -27,7 +24,6 @@ contract VerifierRegistry {
     error ThresholdExceedsTotal();
     error InsufficientStake();
     error TransferFailed();
-    error InsufficientRewardPool();
     error StakingTokenNotSet();
 
     // ──────────────────────────────── Immutables ─────────────────────────────
@@ -74,19 +70,6 @@ contract VerifierRegistry {
     /// @notice Base reward per verified binding (in staking token).
     uint256 public verificationReward;
 
-    /// @notice Recipient of slashed stake (protocol treasury by default).
-    address public slashRecipient;
-
-    /// @notice Reward tokens credited by the fee bridge, kept separate from
-    ///         staked funds so reward payouts never dilute slashable stake.
-    uint256 public rewardPool;
-
-    /// @notice Sole address allowed to credit the reward pool (fee bridge).
-    address public rewardAllocator;
-
-    /// @notice Scoring engine notified on slash (address(0) disables the hook).
-    address public scoringEngine;
-
     // ──────────────────────────────── Events ─────────────────────────────────
 
     event VerifierRegistered(
@@ -115,11 +98,7 @@ contract VerifierRegistry {
     event VerifierSlashed(address indexed verifier, uint256 amount, string reason);
     event VerifierRewarded(address indexed verifier, uint256 amount);
     event StakingConfigUpdated(uint256 minStake, uint256 reward);
-    event SlashRecipientUpdated(address indexed recipient);
     event AuthorizedCallerUpdated(address indexed caller, bool allowed);
-    event RewardPoolCredited(uint256 amount);
-    event RewardAllocatorUpdated(address indexed allocator);
-    event ScoringEngineUpdated(address indexed engine);
 
     // ──────────────────────────────── Constructor ────────────────────────────
 
@@ -127,7 +106,6 @@ contract VerifierRegistry {
     constructor(address admin_) {
         if (admin_ == address(0)) revert InvalidAddress();
         admin = admin_;
-        slashRecipient = admin_;
     }
 
     // ────────────────────────────── Admin Functions ──────────────────────────
@@ -140,16 +118,14 @@ contract VerifierRegistry {
         emit AuthorizedCallerUpdated(caller, allowed);
     }
 
-    /// @notice Register a new verifier node (inactive until minStake is met).
+    /// @notice Register a new verifier node.
     /// @param wallet Verifier's Ethereum address.
     /// @param endpointUrl Verifier's API endpoint for off-chain attestation.
-    /// @dev The legacy stakeAmount argument is deprecated and ignored. Verifiers
-    ///      deposit real stake via stake() to become active; when minStake is 0
-    ///      the requirement is trivially met and registration activates directly.
+    /// @param stakeAmount Optional initial stake (may be zero for testnet).
     function registerVerifier(
         address wallet,
         string calldata endpointUrl,
-        uint256 /* stakeAmount */
+        uint256 stakeAmount
     ) external onlyAdmin {
         if (wallet == address(0)) revert InvalidAddress();
         if (verifiers[wallet].wallet != address(0)) revert VerifierAlreadyRegistered();
@@ -157,8 +133,8 @@ contract VerifierRegistry {
         verifiers[wallet] = VerifierInfo({
             wallet: wallet,
             endpointUrl: endpointUrl,
-            active: minStake == 0,
-            stakeAmount: 0,
+            active: true,
+            stakeAmount: stakeAmount,
             successCount: 0,
             falseAttestationCount: 0,
             totalEarnings: 0,
@@ -166,7 +142,7 @@ contract VerifierRegistry {
         });
         verifierList.push(wallet);
 
-        emit VerifierRegistered(wallet, endpointUrl, 0);
+        emit VerifierRegistered(wallet, endpointUrl, stakeAmount);
 
         // Auto-bump totalVerifiers if exceeding current config.
         uint256 activeCount = _activeCount();
@@ -181,15 +157,6 @@ contract VerifierRegistry {
     function removeVerifier(address wallet) external onlyAdmin {
         if (verifiers[wallet].wallet == address(0)) revert VerifierNotFound();
         delete verifiers[wallet];
-
-        uint256 len = verifierList.length;
-        for (uint256 i = 0; i < len; i++) {
-            if (verifierList[i] == wallet) {
-                verifierList[i] = verifierList[len - 1];
-                verifierList.pop();
-                break;
-            }
-        }
         emit VerifierRemoved(wallet);
     }
 
@@ -207,34 +174,6 @@ contract VerifierRegistry {
         if (verifiers[wallet].wallet == address(0)) revert VerifierNotFound();
         verifiers[wallet].active = true;
         emit VerifierActivated(wallet);
-    }
-
-    /// @notice Set where slashed stake is routed (protocol treasury by default).
-    function setSlashRecipient(address recipient) external onlyAdmin {
-        if (recipient == address(0)) revert InvalidAddress();
-        slashRecipient = recipient;
-        emit SlashRecipientUpdated(recipient);
-    }
-
-    /// @notice Set the scoring engine notified on verifier slash (0 disables hook).
-    function setScoringEngine(address engine) external onlyAdmin {
-        scoringEngine = engine;
-        emit ScoringEngineUpdated(engine);
-    }
-
-    /// @notice Set the sole reward-pool allocator (typically the fee bridge).
-    function setRewardAllocator(address allocator) external onlyAdmin {
-        if (allocator == address(0)) revert InvalidAddress();
-        rewardAllocator = allocator;
-        emit RewardAllocatorUpdated(allocator);
-    }
-
-    /// @notice Credit reward tokens (already transferred by the fee bridge) into
-    ///         the verifier reward pool. Only the reward allocator may call.
-    function creditRewards(uint256 amount) external onlyRewardAllocator {
-        if (amount == 0) return;
-        rewardPool += amount;
-        emit RewardPoolCredited(amount);
     }
 
     /// @notice Update the N-of-M threshold parameters.
@@ -307,15 +246,6 @@ contract VerifierRegistry {
         minStake = minStake_;
         verificationReward = reward;
         emit StakingConfigUpdated(minStake_, reward);
-
-        // If the minimum was raised, deactivate any verifier now under-staked.
-        for (uint256 i = 0; i < verifierList.length; i++) {
-            VerifierInfo storage v = verifiers[verifierList[i]];
-            if (v.active && v.stakeAmount < minStake_) {
-                v.active = false;
-                emit VerifierSuspended(verifierList[i]);
-            }
-        }
     }
 
     /// @notice Verifier stakes tokens to meet minimum requirement.
@@ -324,14 +254,8 @@ contract VerifierRegistry {
         VerifierInfo storage v = verifiers[msg.sender];
         if (v.wallet == address(0)) revert VerifierNotFound();
 
-        if (!IStakingToken(stakingToken).transferFrom(msg.sender, address(this), amount)) {
-            revert TransferFailed();
-        }
+        IStakingToken(stakingToken).transferFrom(msg.sender, address(this), amount);
         v.stakeAmount += amount;
-        if (!v.active && v.stakeAmount >= minStake) {
-            v.active = true;
-            emit VerifierActivated(msg.sender);
-        }
         emit VerifierStaked(msg.sender, amount, v.stakeAmount);
     }
 
@@ -342,7 +266,7 @@ contract VerifierRegistry {
         if (v.stakeAmount < amount + minStake) revert InsufficientStake();
 
         v.stakeAmount -= amount;
-        if (!IStakingToken(stakingToken).transfer(msg.sender, amount)) revert TransferFailed();
+        IStakingToken(stakingToken).transfer(msg.sender, amount);
         emit VerifierUnstaked(msg.sender, amount, v.stakeAmount);
     }
 
@@ -358,41 +282,22 @@ contract VerifierRegistry {
         v.stakeAmount -= amount;
         v.slashedAmount += amount;
 
-        // Real transfer of the slashed stake to the protocol treasury.
-        if (amount > 0 && stakingToken != address(0)) {
-            if (!IStakingToken(stakingToken).transfer(slashRecipient, amount)) {
-                revert TransferFailed();
-            }
-        }
-
         // If stake falls below minimum, deactivate
         if (v.stakeAmount < minStake) {
             v.active = false;
-            emit VerifierSuspended(verifier);
-        }
-
-        // Best-effort reputation write: penalize the slashed verifier.
-        if (scoringEngine != address(0)) {
-            try IScoringEngine(scoringEngine).recordVerifierSlashed(verifier) {} catch {}
         }
 
         emit VerifierSlashed(verifier, amount, reason);
     }
 
     /// @notice Pay verification reward to verifier after successful attestation.
-    /// @dev Payouts are drawn exclusively from the reward pool credited by the
-    ///      fee bridge, never from verifier stake held by this registry.
     function rewardVerifier(address verifier, uint256 amount) external onlyAuthorizedCaller {
         VerifierInfo storage v = verifiers[verifier];
         if (v.wallet == address(0)) revert VerifierNotFound();
-        if (amount > rewardPool) revert InsufficientRewardPool();
 
-        if (amount > 0) {
-            rewardPool -= amount;
+        if (amount > 0 && stakingToken != address(0)) {
+            IStakingToken(stakingToken).transfer(verifier, amount);
             v.totalEarnings += amount;
-            if (stakingToken != address(0)) {
-                if (!IStakingToken(stakingToken).transfer(verifier, amount)) revert TransferFailed();
-            }
         }
         emit VerifierRewarded(verifier, amount);
     }
@@ -417,11 +322,6 @@ contract VerifierRegistry {
     /// @dev Admin retains operational access; Gateway (etc.) must be authorized explicitly.
     modifier onlyAuthorizedCaller() {
         if (msg.sender != admin && !authorizedCallers[msg.sender]) revert Unauthorized();
-        _;
-    }
-
-    modifier onlyRewardAllocator() {
-        if (msg.sender != rewardAllocator) revert Unauthorized();
         _;
     }
 }

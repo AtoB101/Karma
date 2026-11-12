@@ -5,37 +5,11 @@
  *   window.KARMA_API_KEY = "karma_worker-001_secret"; // optional in dev
  */
 (function (global) {
-  /**
-   * Resolve the API base URL for every console page.
-   *   unset (undefined / null) -> local dev API
-   *   explicitly ""            -> same-origin (site reverse proxy in production)
-   */
-  function karmaResolveApiBase(raw) {
-    if (raw === undefined || raw === null) return "http://127.0.0.1:8000";
-    return String(raw).trim().replace(/\/+$/, "");
-  }
-
   function apiBase() {
-    // 节点层在场时以它为准（用户在操作台里选的那台节点）；
-    // 它不在（老缓存 / 单页复用）就退回原来的口径。
-    if (global.KarmaNodes && global.KarmaNodes.effectiveBase) {
-      try {
-        return global.KarmaNodes.effectiveBase();
-      } catch (_) {}
-    }
-    return karmaResolveApiBase(global.KARMA_API_BASE);
+    return String(global.KARMA_API_BASE || "http://127.0.0.1:8000")
+      .trim()
+      .replace(/\/$/, "");
   }
-
-  // Restore the SIWE session token issued by console-wallet-auth.js so console
-  // scripts that run before the wallet layer settles still send Authorization.
-  try {
-    if (!global.KARMA_ACCESS_TOKEN) {
-      global.KARMA_ACCESS_TOKEN = sessionStorage.getItem("karma_console_access_token") || "";
-    }
-    if (!global.KARMA_IDENTITY_ID) {
-      global.KARMA_IDENTITY_ID = sessionStorage.getItem("karma_console_identity") || "";
-    }
-  } catch (_) {}
 
   function headers() {
     const h = { Accept: "application/json" };
@@ -63,112 +37,9 @@
     }
   }
 
-  /**
-   * 每次请求的超时。没有超时的 fetch 在「选中的节点连不上」时会把整个操作台拖住 ——
-   * 请求永远不返回，界面只能一直转圈（线上实测：换到一台连不通的节点，
-   * 十个请求挂了十几秒还没结束，用户看不出是节点的问题还是自己网断了）。
-   * 15 秒够慢网络跑完一次读，又不至于让人对着转圈发呆。
-   *
-   * 两处可以覆盖：调用方在 init 里给 timeoutMs（个别要等链上回执的写操作需要放宽），
-   * 测试用 window.KARMA_FETCH_TIMEOUT_MS 把它压到几十毫秒。
-   */
-  function fetchTimeoutMs(init) {
-    const perCall = init ? Number(init.timeoutMs) : NaN;
-    if (isFinite(perCall) && perCall > 0) return perCall;
-    const want = Number(global.KARMA_FETCH_TIMEOUT_MS);
-    if (isFinite(want) && want > 0) return want;
-    return 15000;
-  }
-
-  /** 连不上 / 超时：交给节点层决定要不要换一台（用户开着自动切换时）。 */
-  function reportNodeFailure() {
-    if (global.KarmaNodes && global.KarmaNodes.reportFailure) {
-      try {
-        global.KarmaNodes.reportFailure(apiBase());
-      } catch (_) {}
-    }
-  }
-
-  /**
-   * 服务端有几条「闸门」是按口径直接拒的，detail 是英文 API 原文 —— 审计和对接
-   * 要看它，但不该原样甩到用户脸上。真机踩过：在操作台点「生成」，只看到一整句
-   * 英文 HTTP 400（agent_binding is required: every runtime key must name ...），
-   * 既不知道错在哪，也不知道下一步点哪儿。
-   *
-   * 这里只改给用户看的 message；原文留在 err.detail 并打进 console.warn，
-   * 排查时一句都不会丢。文案本身是中文源文，五种语言的译文在 i18n-phrase 里。
-   */
-  const GATE_HINTS = [
-    {
-      match: "agent_binding is required",
-      hint: "这把钥匙必须指名一台 agent：回到第 1 步，先给你的 agent 起个名字（如 claw-001），再点生成。",
-    },
-    {
-      match: "agent_id requires agent_binding",
-      hint: "这把钥匙必须指名一台 agent：回到第 1 步，先给你的 agent 起个名字（如 claw-001），再点生成。",
-    },
-    {
-      match: "agent_id must match agent_binding",
-      hint: "签名里的 agent 和这次请求声明的不是同一个：回到第 1 步重新填一次名字，再生成。",
-    },
-    {
-      match: "automation policy not saved",
-      hint: "权限与边界还没保存：把第 4 步填完，再点生成。",
-    },
-    {
-      match: "Authentication required",
-      hint: "会话已过期：点页面上的「连接钱包」重新签名一次，再重试这一步。",
-    },
-  ];
-
-  /** 命中已知闸门就返回人话；不认识的服务端 detail 原样抛，不假装看得懂。 */
-  function gateHint(msg) {
-    const text = String(msg || "");
-    for (let i = 0; i < GATE_HINTS.length; i++) {
-      if (text.indexOf(GATE_HINTS[i].match) >= 0) return GATE_HINTS[i].hint;
-    }
-    return "";
-  }
-
-  /** 会话没了（不是权限不够）—— 前者能续签，后者不该重试。两种别混。 */
-  function isSessionFailure(status, detail) {
-    if (status === 401) return true;
-    return (
-      status === 403 &&
-      String(detail || "").toLowerCase().indexOf("authentication required") >= 0
-    );
-  }
-
-  async function karmaFetchOnce(path, init) {
+  async function karmaFetch(path, init) {
     const url = apiBase() + path;
-    const opts = Object.assign({}, init || {});
-    let timer = null;
-    if (!opts.signal) {
-      const ms = fetchTimeoutMs(opts);
-      try {
-        if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) {
-          opts.signal = AbortSignal.timeout(ms);
-        } else if (typeof AbortController === "function") {
-          const ctrl = new AbortController();
-          timer = setTimeout(function () {
-            ctrl.abort(new Error("karma fetch timeout"));
-          }, ms);
-          opts.signal = ctrl.signal;
-        }
-      } catch (_) {}
-    }
-    // timeoutMs 是给本客户端的，别顺手塞给 fetch。
-    delete opts.timeoutMs;
-    let res;
-    try {
-      res = await fetch(url, opts);
-    } catch (e) {
-      // 换完把错照原样抛出去，调用方看到的仍是「这次请求失败了」，不会假装成功。
-      reportNodeFailure();
-      throw e;
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
+    const res = await fetch(url, init);
     const text = await res.text();
     let body;
     try {
@@ -184,74 +55,9 @@
       const err = new Error("HTTP " + res.status + ": " + msg);
       err.status = res.status;
       err.body = body;
-      err.detail = msg;
-      const hint = gateHint(msg);
-      if (hint) {
-        err.serverMessage = err.message;
-        err.message = hint;
-        try {
-          console.warn("[karma] " + err.serverMessage);
-        } catch (_) {}
-      }
       throw err;
     }
     return body;
-  }
-
-  /**
-   * 会话过期的自愈。
-   *
-   * SIWE 令牌只有 15 分钟，页面开着就会过期（入口门禁只在事件上重算，过期本身不产生
-   * 事件）。在那之前，一次「生成接入包」会走到最后才炸一句英文 HTTP 401，而同一时刻
-   * 「接入确认」那张卡因为同样的 401/403 一直是空的 —— 用户只会看到「匹配码不对」。
-   *
-   * 这里只对**会话类**失败动手：静默重签一次（KarmaWalletAuth.reauth），然后把这次
-   * 请求原样重放一遍；续不上就把门重新关上（karma-session-expired），并照原样抛出去。
-   * 只重放这一次，且只重放会话类失败 —— 别的 4xx/5xx 一次都不重试。
-   */
-  async function karmaFetch(path, init) {
-    try {
-      return await karmaFetchOnce(path, init);
-    } catch (e) {
-      if (!e || !isSessionFailure(e.status, e.detail)) throw e;
-      const auth = global.KarmaWalletAuth;
-      if (!auth || typeof auth.reauth !== "function" || typeof auth.readSession !== "function") throw e;
-      let session = null;
-      try {
-        session = auth.readSession();
-      } catch (_) {
-        session = null;
-      }
-      // 从来没连过钱包的访客：这不是「过期」，别把门关到他脸上（各模块自己会提示去连钱包）。
-      if (!session || !session.accessToken || !session.wallet) throw e;
-      let renewed = false;
-      try {
-        renewed = await auth.reauth();
-      } catch (_) {
-        renewed = false;
-      }
-      if (!renewed) {
-        try {
-          if (typeof auth.markExpired === "function") auth.markExpired();
-        } catch (_) {}
-        throw e;
-      }
-      // 续上了：换上新令牌把这次请求原样重放一遍（只这一次）。
-      const retry = Object.assign({}, init || {});
-      if (init && init.headers) {
-        const h = Object.assign({}, init.headers);
-        const token = String(global.KARMA_ACCESS_TOKEN || "").trim();
-        if (token) h["Authorization"] = "Bearer " + token;
-        else delete h["Authorization"];
-        retry.headers = h;
-      }
-      return await karmaFetchOnce(path, retry);
-    }
-  }
-
-  /** 主身份是否已激活（= 本人实名认证是否通过）。未激活不能接单、不会被撮合。 */
-  async function getIdentityActivation(identityId) {
-    return karmaFetch(`/v1/identity/${encodeURIComponent(identityId)}/activation`, { method: "GET" });
   }
 
   async function getCapacity(identityId) {
@@ -266,88 +72,10 @@
     );
   }
 
-  /**
-   * 授权额度（加额 / 减额 / 取消授权 = 置 0）。
-   *
-   * 动额度 = 给出支配权，所以这条要带 2FA 验证码（``X-Karma-2FA-Code``）。
-   * 没绑 2FA 的身份不带也能过（服务端按设置放行），绑了就必须带 —— 谁的码谁说了算。
-   */
-  async function putAllocations(identityId, allocations, twofaCode) {
-    const extra = twofaCode ? { "X-Karma-2FA-Code": String(twofaCode) } : null;
-    return karmaFetch("/v1/capacity/" + encodeURIComponent(identityId) + "/allocations", {
-      method: "PUT",
-      headers: Object.assign({ ...headers(), "Content-Type": "application/json" }, extra || {}),
-      body: JSON.stringify({ allocations: allocations }),
-    });
-  }
-
-  async function setAllocations(identityId, allocations, twofaCode) {
-    // 显式给了码（测试 / 上层自己收过码）就直接发；否则统一走闸门：
-    // 绑了 2FA 就先弹验证码，没绑（且节点没强制）就照旧。
-    if (twofaCode !== undefined && twofaCode !== null) {
-      return putAllocations(identityId, allocations, twofaCode);
-    }
-    const gate = global.Karma2FA;
-    if (gate && typeof gate.guard === "function") {
-      return gate.guard(function (code) { return putAllocations(identityId, allocations, code); }, "授权额度");
-    }
-    return putAllocations(identityId, allocations, "");
-  }
-
-  /* ---- 操作台的安全验证（2FA / TOTP）---------------------------------------
-     密钥从来不回吐：状态里只有「绑没绑、还剩几张恢复码、锁没锁」。 */
-
-  async function getTwoFactor() {
-    return karmaFetch("/v1/console/2fa", { method: "GET", headers: headers() });
-  }
-
-  async function enrollTwoFactor() {
-    return jsonPost("/v1/console/2fa/enroll", {});
-  }
-
-  async function activateTwoFactor(code) {
-    return jsonPost("/v1/console/2fa/activate", { code: code });
-  }
-
-  async function rotateTwoFactorRecovery(code) {
-    return jsonPost("/v1/console/2fa/recovery", { code: code });
-  }
-
-  async function disableTwoFactor(code) {
-    return jsonPost("/v1/console/2fa/disable", { code: code });
-  }
-
-  /* ---- 刷脸即激活 / 追加身份同人比对 -------------------------------------- */
-
-  /** 主身份刷脸激活：活体 + 多角度采集在本机完成，交上来的是模板密文 + 摘要。 */
-  async function submitFaceActivation(identityId, body) {
-    return jsonPost(
-      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/face-activate",
-      body
-    );
-  }
-
-  /** 取回首次刷脸留下的模板密文（只有本人拿得到），在本地解密后跟现采的脸比对。 */
-  async function getFaceTemplate(identityId) {
-    return karmaFetch(
-      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/face-template",
-      { method: "GET", headers: headers() }
-    );
-  }
-
-  /** 主体认证留下的密文包（只有本人拿得到）：本机解开后当同人比对的参考脸。 */
-  async function getVerificationPackage(identityId) {
-    return karmaFetch(
-      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/package",
-      { method: "GET", headers: headers() }
-    );
-  }
-
-  /** 追加身份的一致性结论：分数由本机算，服务端复核签名 / 参考模板 / 新鲜度 / 过线。 */
-  async function confirmFaceConsistency(profileId, body) {
-    return jsonPost(
-      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/face-consistency",
-      body
+  async function setAllocations(identityId, allocations) {
+    return jsonPut(
+      "/v1/capacity/" + encodeURIComponent(identityId) + "/allocations",
+      { allocations: allocations }
     );
   }
 
@@ -372,118 +100,8 @@
     });
   }
 
-  /**
-   * 撤销钥匙（不可逆）。收回支配权 → 过 2FA 闸门；验证码放在 body 里
-   * （这条路由的签名原文只有那份老的，不能把码拌进签名消息，否则两边会失配）。
-   */
   async function runtimeRevokeKey(payload) {
-    const gate = global.Karma2FA;
-    if (gate && typeof gate.guard === "function") {
-      const out = await gate.guard(function (code) {
-        return runtimeRevokeKeyWith(payload, code);
-      }, "停用钥匙");
-      return out;
-    }
-    return runtimeRevokeKeyWith(payload, "");
-  }
-
-  async function runtimeRevokeKeyWith(payload, twofaCode) {
-    const body = Object.assign({}, payload || {});
-    if (twofaCode) body.twofa_code = String(twofaCode);
     return karmaFetch("/runtime/revoke-key", {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  }
-
-  // agent 申请接入后要靠主人手输匹配码才生效：这三个是操作台侧的动作。
-  async function runtimeConfirmBindKey(payload) {
-    return karmaFetch("/runtime/confirm-bind-key", {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  }
-
-  async function runtimeRejectBindKey(payload) {
-    return karmaFetch("/runtime/reject-bind-key", {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  }
-
-  async function runtimeListBindRequests(payload) {
-    return karmaFetch("/runtime/list-bind-requests", {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  }
-
-  // 会话鉴权版：主人一进操作台就要能看见「有 agent 在申请接入」，
-  // 不该为了看一眼提示先按一次钱包签名（那是 /runtime/list-bind-requests 的活）。
-  async function runtimeListPendingBinds(payload) {
-    return karmaFetch("/runtime/list-pending-binds", {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  }
-
-  // 设置页「已授权 · 一键取消绑定」：列已绑公钥的钥匙走会话鉴权（列一下不该惊动钱包），
-  // 取消绑定必须钱包签名 —— 那是主人本人的动作，不能让一个会话单独完成。
-  async function runtimeListBoundKeys(payload) {
-    return karmaFetch("/runtime/list-bound-keys", {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  }
-
-  /** 取消绑定（不可逆）：同样过 2FA 闸门。 */
-  async function runtimeUnbindKey(payload) {
-    const gate = global.Karma2FA;
-    if (gate && typeof gate.guard === "function") {
-      const out = await gate.guard(function (code) {
-        return runtimeUnbindKeyWith(payload, code);
-      }, "取消绑定");
-      return out;
-    }
-    return runtimeUnbindKeyWith(payload, "");
-  }
-
-  async function runtimeUnbindKeyWith(payload, twofaCode) {
-    const body = Object.assign({}, payload || {});
-    if (twofaCode) body.twofa_code = String(twofaCode);
-    return karmaFetch("/runtime/unbind-key", {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  }
-
-  // 展开「已绑定钥匙」看最近调用：会话鉴权，只看自己名下的钥匙（别人的一律 404）。
-  async function runtimeKeyCalls(payload) {
-    return karmaFetch("/runtime/key-calls", {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  }
-
-  // 站内提醒：取消绑定这类不可逆动作，关掉页面也留痕，点过才消。
-  async function runtimeListNotices(payload) {
-    return karmaFetch("/runtime/list-notices", {
-      method: "POST",
-      headers: { ...headers(), "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  }
-
-  async function runtimeAckNotice(payload) {
-    return karmaFetch("/runtime/ack-notice", {
       method: "POST",
       headers: { ...headers(), "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -540,64 +158,6 @@
 
   async function createRoleProfile(payload) {
     return jsonPost("/v1/identity/role-profiles", payload);
-  }
-
-  async function getIdentityVerification(identityId) {
-    return karmaFetch(
-      "/v1/identity/" + encodeURIComponent(identityId) + "/verification",
-      { method: "GET", headers: headers() }
-    );
-  }
-
-  /* 证件 + 刷脸：浏览器端加密后的密文包 + 摘要 + 脱敏字段。
-     明文字段服务端会直接 400 拒掉（services/identity_verification.py 的白名单）。 */
-  /* 第三方实名 / 活体服务：接了没有、开一次核验、以及主动回查结论。
-     证件与人脸**直连服务商**，这里只拿会话号和结论，Karma 不经手明文。 */
-  async function getIdentityProvider(identityId) {
-    return karmaFetch(
-      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/provider",
-      { method: "GET", headers: headers() }
-    );
-  }
-
-  async function openIdentityProviderSession(identityId, payload) {
-    return jsonPost(
-      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/provider/session",
-      payload || {}
-    );
-  }
-
-  async function syncIdentityProviderSession(identityId) {
-    return jsonPost(
-      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/provider/sync",
-      {}
-    );
-  }
-
-  async function submitIdentityVerification(identityId, payload) {
-    return jsonPost(
-      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/submit",
-      payload
-    );
-  }
-
-  async function verifyIdentityVerification(identityId, decision, reason) {
-    return jsonPost(
-      "/v1/identity/" + encodeURIComponent(identityId) + "/verification/verify",
-      { decision: decision, reason: reason || null }
-    );
-  }
-
-  /** 子身份绑操作钱包：服务端要该钱包的 personal_sign 签名。 */
-  async function bindRoleProfileWallet(profileId, payload) {
-    return jsonPost(
-      "/v1/identity/role-profiles/" + encodeURIComponent(profileId) + "/bind-wallet",
-      payload
-    );
-  }
-
-  async function updateRoleProfile(profileId, payload) {
-    return jsonPut("/v1/identity/role-profiles/" + encodeURIComponent(profileId), payload);
   }
 
   async function getIdentityCard(identityId) {
@@ -698,39 +258,6 @@
     return karmaFetch("/v1/openclaw/handoff-events" + (qs ? "?" + qs : ""), { method: "GET", headers: headers() });
   }
 
-  async function listOnboardingIndustries() {
-    return karmaFetch("/v1/standards/onboarding/industries", {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
-  }
-
-  async function getOnboardingIndustry(industryId) {
-    return karmaFetch("/v1/standards/onboarding/industries/" + encodeURIComponent(industryId), {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    });
-  }
-
-  /** 资质文本 → 行业目录建议（服务端同一套关键词匹配）。接入向导用它推行业，不再让用户选。 */
-  async function suggestIndustries(text) {
-    return jsonPost("/v1/standards/onboarding/suggest-industries", { text: String(text || ""), limit: 3 });
-  }
-
-  /** Agents owned by the authenticated identity card (P1 readiness included). */
-  async function listMyAgents() {
-    return karmaFetch("/v1/agents/mine", { method: "GET", headers: headers() });
-  }
-
-  /** Owner-console connect: Karma custody-holds the agent key server-side. */
-  async function ownerConnect(payload) {
-    return jsonPost("/v1/agents/owner-connect", payload);
-  }
-
-  async function ownerRevokeAgent(agentId) {
-    return jsonPost("/v1/agents/owner-revoke", { agent_id: agentId });
-  }
-
   function jsonPost(path, payload, extraHeaders) {
     const h = { ...headers(), "Content-Type": "application/json" };
     if (extraHeaders) {
@@ -753,46 +280,6 @@
     });
   }
 
-  /* Agent pairing — the owner half. request/claim live on the agent side and are
-     deliberately not callable from here: the console approves, it never delivers. */
-  async function lookupPairing(userCode) {
-    return karmaFetch(
-      "/v1/agent-pairing/lookup?user_code=" + encodeURIComponent(String(userCode || "").trim()),
-      { method: "GET", headers: headers() }
-    );
-  }
-
-  async function approvePairing(payload) {
-    return jsonPost("/v1/agent-pairing/approve", payload);
-  }
-
-  async function denyPairing(payload) {
-    return jsonPost("/v1/agent-pairing/deny", payload);
-  }
-
-  async function attachPairingRuntimeKey(payload) {
-    return jsonPost("/v1/agent-pairing/attach-runtime-key", payload);
-  }
-
-  /** 重发「邮箱回执」确认邮件：重出码，旧邮件里的链接当场作废。 */
-  async function resendPairingEmail(payload) {
-    return jsonPost("/v1/agent-pairing/email-confirm/resend", payload);
-  }
-
-  /**
-   * 签发交接码：主人念给 / 输给 agent 的那串码，3 分钟、只显示这一次。
-   *
-   * 这是「主人 -> agent」方向的第二把锁：agent 自己的配对码 PROVES 它是最初
-   * 发起的那一个进程，交接码 PROVES 主人真的把凭据交给了它。缺一个都领不走。
-   */
-  async function issuePairingHandoff(payload) {
-    return jsonPost("/v1/agent-pairing/handoff", payload);
-  }
-
-  async function listMyPairings() {
-    return karmaFetch("/v1/agent-pairing/mine", { method: "GET", headers: headers() });
-  }
-
   async function postAuthToken(agentId, apiKey) {
     return karmaFetch("/v1/auth/token", {
       method: "POST",
@@ -801,82 +288,20 @@
     });
   }
 
-  /*
-   * Lock / release act on the master capacity row only.
-   *
-   * POST /v1/capacity/{id}/lock and /release accept an optional profile_id, but
-   * the server only uses it to *stamp* the master row (see api/routes/capacity.py):
-   * the credits still come from and return to the master pool, and per-profile
-   * allocations move with PUT /allocations. Sending a sub-identity id here bought
-   * nothing and quietly branded the master ledger row with a sub-identity, so the
-   * console never sends one. Release is refused client-side while a sub-identity
-   * scope is active.
-   */
   async function lockCapacity(identityId, amount) {
     const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/capacity/" + id + "/lock", { amount: Number(amount) });
+    const body = { amount: Number(amount) };
+    const pid = activeProfileId();
+    if (pid) body.profile_id = pid;
+    return jsonPost("/v1/capacity/" + id + "/lock", body);
   }
 
   async function releaseCapacity(identityId, amount) {
     const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/capacity/" + id + "/release", { amount: Number(amount) });
-  }
-
-  /*
-   * Real on-chain deposits.
-   *
-   * The wallet signs `approve` + `lock` itself and the server only verifies the
-   * receipt, so no key ever reaches Karma. `claimBill` credits the ledger from
-   * the on-chain BillMinted event and is idempotent per transaction.
-   */
-  async function getChainLockState(identityId) {
-    const id = encodeURIComponent(identityId);
-    return karmaFetch("/v1/capacity/" + id + "/chain", { method: "GET", headers: headers() });
-  }
-
-  async function claimBill(identityId, txHash) {
-    const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/capacity/" + id + "/claim-bill", { tx_hash: String(txHash) });
-  }
-
-  async function claimUnlock(identityId, billId, txHash) {
-    const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/capacity/" + id + "/claim-unlock", {
-      bill_id: String(billId),
-      tx_hash: String(txHash),
-    });
-  }
-
-  /*
-   * v2 allowance escrow — the money never leaves the user's wallet.
-   *
-   * The wallet signs `approve` + `commit` once; the server verifies the receipt
-   * and records the commitment. Everything after that (binding an order,
-   * submitting a proof, pulling the payment) is Karma's rules running on top of
-   * that allowance, and the payer can revoke it at any time with one more
-   * signature of their own.
-   */
-  async function getEscrowState(identityId) {
-    const id = encodeURIComponent(identityId);
-    return karmaFetch("/v1/escrow/" + id, { method: "GET", headers: headers() });
-  }
-
-  async function claimCommit(identityId, txHash) {
-    const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/escrow/" + id + "/claim-commit", { tx_hash: String(txHash) });
-  }
-
-  async function claimEscrowRevoke(identityId, billId, txHash) {
-    const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/escrow/" + id + "/claim-revoke", {
-      bill_id: String(billId),
-      tx_hash: String(txHash),
-    });
-  }
-
-  async function syncEscrow(identityId) {
-    const id = encodeURIComponent(identityId);
-    return jsonPost("/v1/escrow/" + id + "/sync", {});
+    const body = { amount: Number(amount) };
+    const pid = activeProfileId();
+    if (pid) body.profile_id = pid;
+    return jsonPost("/v1/capacity/" + id + "/release", body);
   }
 
   async function createSettlement(payload) {
@@ -940,36 +365,10 @@
     });
   }
 
-  async function acceptPaymentCode(voucherId, sellerIdentityId, sellerProfileId) {
-    var body = { seller_identity_id: sellerIdentityId };
-    // 可选：这一单算到哪个子身份账上（收付中心按它拆收入）。
-    if (sellerProfileId) body.seller_profile_id = sellerProfileId;
-    return jsonPost("/v1/payment-codes/" + encodeURIComponent(voucherId) + "/accept", body);
-  }
-
-  /** 收付中心台账：总览 / 收入明细 / 支出明细 / 确认区 / 争议区 一次拿全。 */
-  async function getPaymentLedger(params) {
-    var p = params || {};
-    var q = new URLSearchParams();
-    ["identity_id", "profile_id", "direction", "kind", "status"].forEach(function (k) {
-      if (p[k]) q.set(k, String(p[k]));
+  async function acceptPaymentCode(voucherId, sellerIdentityId) {
+    return jsonPost("/v1/payment-codes/" + encodeURIComponent(voucherId) + "/accept", {
+      seller_identity_id: sellerIdentityId,
     });
-    if (p.limit) q.set("limit", String(p.limit));
-    if (p.offset) q.set("offset", String(p.offset));
-    var qs = q.toString();
-    return karmaFetch("/v1/payments/ledger" + (qs ? "?" + qs : ""), {
-      method: "GET",
-      headers: headers(),
-    });
-  }
-
-  /** 单笔详情（含状态流转 / 事件历史）。 */
-  async function getPaymentEntry(kind, refId, identityId) {
-    var q = identityId ? "?" + new URLSearchParams({ identity_id: identityId }).toString() : "";
-    return karmaFetch(
-      "/v1/payments/entries/" + encodeURIComponent(kind) + "/" + encodeURIComponent(refId) + q,
-      { method: "GET", headers: headers() }
-    );
   }
 
   async function rejectPaymentCode(voucherId, sellerIdentityId, reason) {
@@ -997,37 +396,13 @@
     return jsonPost("/v1/trade/orders/launch/signing-preview", body, extra);
   }
 
-  /** 确认区：agent 超出自动额度、等人点头的授权请求（只列本人名下）。 */
-  async function getPendingConfirmations(identityId) {
-    const q = new URLSearchParams({ identity_id: identityId }).toString();
-    return karmaFetch("/v1/confirmations/pending?" + q, { method: "GET", headers: headers() });
-  }
-
-  /** 主人的决定：确认 → agent 可以继续；拒绝 → 就地停住。 */
-  async function decideConfirmation(sessionId, confirm, actorAgentId, note) {
-    return jsonPost(
-      "/v1/confirmations/sessions/" + encodeURIComponent(sessionId) + "/decide",
-      { confirm: !!confirm, actor_agent_id: actorAgentId, note: note || null }
-    );
-  }
-
   global.cyberKarmaApi = {
     apiBase,
     karmaFetch,
     headers,
     getCapacity,
-    getIdentityActivation,
     getAllocations,
     setAllocations,
-    getTwoFactor,
-    enrollTwoFactor,
-    activateTwoFactor,
-    rotateTwoFactorRecovery,
-    disableTwoFactor,
-    submitFaceActivation,
-    getFaceTemplate,
-    getVerificationPackage,
-    confirmFaceConsistency,
     getSettlement,
     getHealth,
     getV1Info,
@@ -1037,24 +412,10 @@
     getBundleForTask,
     listSettlementTransitions,
     listAgents,
-    listMyAgents,
-    listOnboardingIndustries,
-    getOnboardingIndustry,
-    suggestIndustries,
-    ownerConnect,
-    ownerRevokeAgent,
     listRoleProfiles,
     getRoleProfile,
     createRoleProfile,
     getIdentityCard,
-    getIdentityVerification,
-    getIdentityProvider,
-    openIdentityProviderSession,
-    syncIdentityProviderSession,
-    submitIdentityVerification,
-    verifyIdentityVerification,
-    bindRoleProfileWallet,
-    updateRoleProfile,
     grantDisclosure,
     listDisclosures,
     revokeDisclosure,
@@ -1068,24 +429,10 @@
     getOpenclawHandoffAttestation,
     getAutomationPolicy,
     putAutomationPolicy,
-    lookupPairing,
-    approvePairing,
-    denyPairing,
-    attachPairingRuntimeKey,
-    resendPairingEmail,
-    issuePairingHandoff,
-    listMyPairings,
     listOpenclawHandoffEvents,
     postAuthToken,
     lockCapacity,
     releaseCapacity,
-    getChainLockState,
-    claimBill,
-    claimUnlock,
-    getEscrowState,
-    claimCommit,
-    claimEscrowRevoke,
-    syncEscrow,
     createSettlement,
     settlementPending,
     settlementLock,
@@ -1101,30 +448,11 @@
     acceptPaymentCode,
     rejectPaymentCode,
     getVoucherEvents,
-    getPaymentLedger,
-    getPaymentEntry,
     launchTradeOrder,
     tradeLaunchSigningPreview,
-    getPendingConfirmations,
-    decideConfirmation,
     jsonPost,
     jsonPut,
     activeProfileId,
   };
-  global.karmaRuntimeApi = {
-    runtimeCreateKey,
-    runtimeListKeys,
-    runtimeRevokeKey,
-    runtimeConfirmBindKey,
-    runtimeRejectBindKey,
-    runtimeListBindRequests,
-    runtimeListPendingBinds,
-    runtimeListBoundKeys,
-    runtimeUnbindKey,
-    runtimeKeyCalls,
-    runtimeListNotices,
-    runtimeAckNotice,
-    karmaFetch,
-    headers,
-  };
+  global.karmaRuntimeApi = { runtimeCreateKey, runtimeListKeys, runtimeRevokeKey, karmaFetch, headers };
 })(window);

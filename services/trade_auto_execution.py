@@ -5,14 +5,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.schemas import ProgressConfirmationStatus, ProgressReceipt, TaskStatus, ToolStatus
 from db.models.orm import ProgressReceiptModel, ReceiptModel, TaskContractModel
 from db.stores.settlement_store import PostgresSettlementStore
 from services.openclaw_handoff_attestation import confirm_handoff_attestation
-from services.signing import signing_service
 from services.openclaw_webhook import emit_openclaw_event
 from services.voucher_events import record_voucher_event
 
@@ -68,14 +66,9 @@ async def kickoff_seller_execution(
         evidence_hash=hashlib_placeholder(f"progress-start:{task_id}"),
         runtime_log_hash=hashlib_placeholder(f"runtime-start:{task_id}"),
         timestamp=ts,
-        # 以前这里写死一个假签名 "0xtrade_pipeline_progress"：开发环境靠占位白名单
-        # 糊过去，生产环境一旦真验签就露馅。现在由服务端按规范载荷真签一次。
-        seller_signature="",
+        seller_signature="0xtrade_pipeline_progress",
         validation_method="trade_pipeline_v1",
         confirmation_status=ProgressConfirmationStatus.PENDING,
-    )
-    progress = progress.model_copy(
-        update={"seller_signature": signing_service.sign_progress(progress)}
     )
     db.add(
         ProgressReceiptModel(
@@ -96,29 +89,11 @@ async def kickoff_seller_execution(
     contract = await db.get(TaskContractModel, task_id)
     if contract:
         step0 = (decomposed_spec.get("agent_steps") or [{}])[0]
-        # 回执的 step_index 是 **1 基**的：core/schemas.py::ExecutionReceipt 写死
-        # ``Field(ge=1)``，收据路由也要求「这一单的第一条必须是 1」。这里以前写 0 ——
-        # 等于往库里塞一条**读都读不出来**的行：PostgresReceiptStore._from_row 会把
-        # 它喂给 pydantic，当场 ValidationError（input_value=0），于是任何
-        # list_by_task / get_latest_by_task 都炸成裸 500。放款那几道闸
-        # （收付前的成功回执校验、auto-confirm 的 preflight）都读这张表，
-        # 所以这一条脏行会把**卖方收钱那条路整条打挂**（2026-10-14 testnet 实测：
-        # POST /v1/settlement/{task}/buyer-accept → 500）。
-        # 取「这一单现有最大 step_index + 1」，没有就 1：既守住 1 基，
-        # 也不会跟卖家已经提交过的真回执撞 uq_task_step(task_id, step_index)。
-        latest_step = (
-            await db.execute(
-                select(ReceiptModel.step_index)
-                .where(ReceiptModel.task_id == task_id)
-                .order_by(ReceiptModel.step_index.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
         db.add(
             ReceiptModel(
                 task_id=task_id,
                 agent_id=seller_identity_id,
-                step_index=int(latest_step or 0) + 1,
+                step_index=0,
                 tool_name=f"trade_pipeline.{step0.get('action', 'start')}",
                 input_hash=hashlib_placeholder(f"in:{task_id}:0"),
                 output_hash=hashlib_placeholder(f"out:{task_id}:0"),

@@ -93,65 +93,6 @@ async def _mint_runtime_key(
 
 
 @pytest.mark.asyncio
-async def test_runtime_repeated_nonce_replays_the_first_result(client: AsyncClient, db_session):
-    """同 nonce 重发 → 拿回第一次的真实凭证，不再是一句 409 duplicate。
-
-    场景就是「服务端明明建好了凭证，客户端只收到 504」（并发压测 P2）：重发必须能
-    拿到那张凭证，而不是既判断不出成没成、也不敢再发。重复的那一次也**不该**再占
-    一遍日额度 —— 幂等回放不是「再执行一次」。
-    """
-    buyer = f"e2e-rt-replay-{uuid.uuid4().hex[:8]}"
-    seller = f"e2e-rt-replay-s-{uuid.uuid4().hex[:8]}"
-    acct = Account.create()
-    rt = await _mint_runtime_key(
-        client,
-        account=acct,
-        karma_identity_id=buyer,
-        permissions=["request_voucher"],
-        single_limit=100.0,
-        daily_limit=200.0,
-    )
-    await client.post(f"/v1/capacity/{buyer}/lock", json={"amount": 120.0})
-
-    nonce = f"rv-replay-{uuid.uuid4().hex}"
-    body = {
-        "client_nonce": nonce,
-        "voucher": _voucher_payload(
-            buyer=buyer, seller=seller, amount=35.0, nonce=f"v-{uuid.uuid4().hex}"
-        ),
-    }
-    first = await client.post(
-        "/runtime/request-voucher", headers={"X-Karma-Runtime-Key": rt}, json=body
-    )
-    assert first.status_code == 201, first.text
-
-    again = await client.post(
-        "/runtime/request-voucher", headers={"X-Karma-Runtime-Key": rt}, json=body
-    )
-    assert again.status_code == 201, again.text
-    assert again.json().get("idempotent_replay") is True
-    assert again.json()["voucher_id"] == first.json()["voucher_id"]
-
-    # 同一个 nonce 换了请求体 = 调用方拿错了 nonce，必须拒（这不是幂等重发）。
-    tampered = {**body, "voucher": {**body["voucher"], "amount": 36.0}}
-    conflict = await client.post(
-        "/runtime/request-voucher", headers={"X-Karma-Runtime-Key": rt}, json=tampered
-    )
-    assert conflict.status_code == 409, conflict.text
-
-    # 日额度只被这一单占了一次（35），没有因为重发变成 70。
-    from db.models.orm import RuntimeKeyDailySpendModel
-    from services.runtime_daily_spend import _today_iso
-
-    key_id = rt.split("_")[2]
-    spend = await db_session.get(
-        RuntimeKeyDailySpendModel, (key_id, _today_iso())
-    )
-    assert spend is not None, "下单该留下一笔当日额度占用"
-    assert float(spend.amount_used) == 35.0
-
-
-@pytest.mark.asyncio
 async def test_runtime_e2e_list_keys_and_revoke(client: AsyncClient):
     acct = Account.create()
     identity = f"e2e-list-{uuid.uuid4().hex[:10]}"
@@ -202,7 +143,7 @@ async def test_runtime_e2e_list_keys_and_revoke(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_runtime_e2e_voucher_receipt_settlement_flow(client: AsyncClient, activate_identity):
+async def test_runtime_e2e_voucher_receipt_settlement_flow(client: AsyncClient):
     """
     买方 Runtime Key：request_voucher + request_settlement(buyer_accept) + sync
     卖方 Runtime Key：submit_receipt + request_settlement(submit_delivery) + sync
@@ -252,8 +193,6 @@ async def test_runtime_e2e_voucher_receipt_settlement_flow(client: AsyncClient, 
     assert vr.status_code == 201, vr.text
     voucher_id = vr.json()["voucher_id"]
 
-    # 未激活的主身份不能接单：先把卖家标成「本人实名认证已通过」。
-    await activate_identity(seller)
     acc = await client.post(f"/v1/vouchers/{voucher_id}/accept", json={"seller_identity_id": seller})
     assert acc.status_code == 200, acc.text
 

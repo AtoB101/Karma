@@ -12,18 +12,16 @@ contract VerifierRegistryAccessControlTest is Test {
 
     address internal admin = makeAddr("admin");
     address internal gateway = makeAddr("gateway");
-    address internal rewardAllocator = makeAddr("rewardAllocator");
     address internal stranger = makeAddr("stranger");
     address internal verifier = makeAddr("verifier");
 
     function setUp() public {
+        token = new MockERC20();
         vm.startPrank(admin);
         registry = new VerifierRegistry(admin);
-        token = new MockERC20();
         registry.setStakingConfig(address(token), 1, 100);
         registry.registerVerifier(verifier, "https://v.example", 0);
         registry.setAuthorizedCaller(gateway, true);
-        registry.setRewardAllocator(rewardAllocator);
         vm.stopPrank();
 
         token.mint(address(registry), 1_000_000);
@@ -49,37 +47,12 @@ contract VerifierRegistryAccessControlTest is Test {
     }
 
     function test_rewardVerifier_okForGateway() public {
-        vm.prank(rewardAllocator);
-        registry.creditRewards(100);
-
         vm.prank(gateway);
         registry.rewardVerifier(verifier, 100);
         assertEq(token.balanceOf(verifier), 100);
-        assertEq(registry.rewardPool(), 0);
-    }
-
-    function test_rewardVerifier_revertsWhenPoolInsufficient() public {
-        vm.prank(gateway);
-        vm.expectRevert(VerifierRegistry.InsufficientRewardPool.selector);
-        registry.rewardVerifier(verifier, 100);
-    }
-
-    function test_creditRewards_revertsForStranger() public {
-        vm.prank(stranger);
-        vm.expectRevert(VerifierRegistry.Unauthorized.selector);
-        registry.creditRewards(100);
-    }
-
-    function test_creditRewards_okForAllocator() public {
-        vm.prank(rewardAllocator);
-        registry.creditRewards(100);
-        assertEq(registry.rewardPool(), 100);
     }
 
     function test_adminCanCallPrivilegedWrites() public {
-        vm.prank(rewardAllocator);
-        registry.creditRewards(50);
-
         vm.startPrank(admin);
         registry.recordAttestation(verifier, false);
         registry.rewardVerifier(verifier, 50);
@@ -96,42 +69,5 @@ contract VerifierRegistryAccessControlTest is Test {
         vm.prank(gateway);
         vm.expectRevert(VerifierRegistry.Unauthorized.selector);
         registry.recordAttestation(verifier, true);
-    }
-
-    function test_register_isInactive_whenMinStakeSet() public {
-        // setUp registers with minStake = 1, so the verifier must stake first.
-        assertFalse(registry.isActiveVerifier(verifier));
-    }
-
-    function test_stake_activatesWhenMinStakeMet() public {
-        token.mint(verifier, 10);
-
-        vm.startPrank(verifier);
-        token.approve(address(registry), type(uint256).max);
-        registry.stake(1);
-        vm.stopPrank();
-
-        assertTrue(registry.isActiveVerifier(verifier));
-        (, , , uint256 stakeAmt, , , , ) = registry.verifiers(verifier);
-        assertEq(stakeAmt, 1);
-    }
-
-    function test_slash_transfersToSlashRecipient() public {
-        token.mint(verifier, 10);
-
-        vm.startPrank(verifier);
-        token.approve(address(registry), type(uint256).max);
-        registry.stake(10);
-        vm.stopPrank();
-
-        uint256 adminBefore = token.balanceOf(admin);
-        vm.prank(admin);
-        registry.slash(verifier, 10, "false_attestation");
-
-        // Slashed stake is really transferred to the default slashRecipient.
-        assertEq(token.balanceOf(admin), adminBefore + 10);
-        (, , bool active, uint256 stakeAmt, , , , ) = registry.verifiers(verifier);
-        assertEq(stakeAmt, 0);
-        assertFalse(active);
     }
 }
