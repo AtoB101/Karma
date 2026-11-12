@@ -55,16 +55,13 @@ contract FinancialInvariantsTest is Test {
         assertEq(usdc.balanceOf(address(karma)), BUYER_LOCK + AGENT_LOCK);
     }
 
-    /// INV-2: verification / TEE / ZK result cannot alone authorize payout
-    function test_INV2_teeAndZkNeverRelease() public {
+    /// INV-2: a verification result alone cannot authorize payout
+    function test_INV2_teeNeverRelease() public {
         (, , uint256 bindingId) = _bind();
         vm.warp(block.timestamp + karma.settleDelaySeconds() + 1);
         vm.prank(buyer);
         vm.expectRevert(KarmaBilateral.TEEVerifierNotSet.selector);
         karma.settleWithTEE(bindingId, PROOF, hex"deadbeef");
-        vm.prank(buyer);
-        vm.expectRevert(KarmaBilateral.ZKNotImplemented.selector);
-        karma.settleWithZKProof(bindingId, PROOF, hex"cafebabe");
         assertEq(usdc.balanceOf(address(karma)), BUYER_LOCK + AGENT_LOCK);
     }
 

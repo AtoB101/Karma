@@ -26,7 +26,7 @@ interface IKarmaIdentityRegistry {
 // ─────────────────────────────────────────────────────────────────────────────
 //  KarmaBilateral — Bilateral Lock + Bill Token + KarmaFSM + Threshold Batch
 //                   + Single Commitment Principle (SCP)
-//                   + Three-Layer Verification (Optimistic / TEE / ZK)
+//                   + Two-Layer Verification (Optimistic / TEE)
 //
 //  Core interfaces:
 //    lock(token, amount)  -> billId         mint Bill Token, USDC enters escrow
@@ -41,11 +41,6 @@ interface IKarmaIdentityRegistry {
 //    settleWithTEE(bindingId, proofHash, teeAttestation)
 //      valid attestation -> skip dispute window, immediate settlement
 //      invalid           -> revert (callers use optimistic settle() as fallback)
-//
-//  Layer 3 — ZK (interface reserved, not yet implemented):
-//    settleWithZKProof(bindingId, proofHash, zkProof)
-//      valid proof  -> immediate settlement
-//      invalid      -> immediate refund
 //
 //  SCP:
 //    unlock
@@ -117,9 +112,6 @@ contract KarmaBilateral {
     error SplitOutsideRange(uint16 buyerShareBps);
     // Layer 2 — TEE
     error TEEVerifierNotSet();
-    // Layer 3 — ZK (future)
-    error ZKNotImplemented();
-    error ZKInvalidProof();
     // SCP
     error InsufficientFreeBalance(address addr, uint256 available, uint256 requested);
     // IntentPackage errors
@@ -476,13 +468,15 @@ contract KarmaBilateral {
     }
 
     /// @notice Bilaterally bind buyer and agent Bill Tokens.
-    function bind(uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash)
-        external
-        nonReentrant
-        returns (uint256 bindingId)
+    /// @dev Shared validation for every bind path: bill ownership, state,
+    ///      same-token, distinct owners, reputation gate, and the MINTED→BOUND
+    ///      transition. Returns the packed bills for any caller-side follow-up.
+    function _validateAndBindBills(uint256 buyerBillId, uint256 agentBillId)
+        internal
+        returns (bytes32 buyerBill, bytes32 agentBill)
     {
-        bytes32 buyerBill = _requireBill(buyerBillId);
-        bytes32 agentBill = _requireBill(agentBillId);
+        buyerBill = _requireBill(buyerBillId);
+        agentBill = _requireBill(agentBillId);
 
         if (_billOwner(buyerBill) != msg.sender) revert NotBillOwner(buyerBillId);
         _requireBillState(buyerBillId, _billState(buyerBill), BillState.MINTED);
@@ -493,7 +487,14 @@ contract KarmaBilateral {
 
         _bills[buyerBillId] = _setBillState(buyerBill, BillState.BOUND);
         _bills[agentBillId] = _setBillState(agentBill, BillState.BOUND);
+    }
 
+    function bind(uint256 buyerBillId, uint256 agentBillId, bytes32 scopeHash)
+        external
+        nonReentrant
+        returns (uint256 bindingId)
+    {
+        _validateAndBindBills(buyerBillId, agentBillId);
         bindingId = _finalizeBind(buyerBillId, agentBillId, scopeHash);
     }
 
@@ -511,18 +512,7 @@ contract KarmaBilateral {
         if (attestationGateway == address(0)) revert GatewayNotSet();
         if (taskId == bytes32(0)) revert ZeroAmount();
 
-        bytes32 buyerBill = _requireBill(buyerBillId);
-        bytes32 agentBill = _requireBill(agentBillId);
-
-        if (_billOwner(buyerBill) != msg.sender) revert NotBillOwner(buyerBillId);
-        _requireBillState(buyerBillId, _billState(buyerBill), BillState.MINTED);
-        _requireBillState(agentBillId, _billState(agentBill), BillState.MINTED);
-        if (_billTokenId(buyerBill) != _billTokenId(agentBill)) revert TokenNotAllowed();
-        if (_billOwner(buyerBill) == _billOwner(agentBill)) revert BuyerAgentSameAddress();
-        _enforceReputationGate(_billOwner(agentBill));
-
-        _bills[buyerBillId] = _setBillState(buyerBill, BillState.BOUND);
-        _bills[agentBillId] = _setBillState(agentBill, BillState.BOUND);
+        (bytes32 buyerBill, bytes32 agentBill) = _validateAndBindBills(buyerBillId, agentBillId);
 
         bindingId = _finalizeBind(buyerBillId, agentBillId, scopeHash);
 
@@ -547,16 +537,7 @@ contract KarmaBilateral {
         nonReentrant
         returns (uint256 bindingId)
     {
-        bytes32 buyerBill = _requireBill(buyerBillId);
-        bytes32 agentBill = _requireBill(agentBillId);
-
-        // ═══ Basic bill ownership/state checks ═══
-        if (_billOwner(buyerBill) != msg.sender) revert NotBillOwner(buyerBillId);
-        _requireBillState(buyerBillId, _billState(buyerBill), BillState.MINTED);
-        _requireBillState(agentBillId, _billState(agentBill), BillState.MINTED);
-        if (_billTokenId(buyerBill) != _billTokenId(agentBill)) revert TokenNotAllowed();
-        if (_billOwner(buyerBill) == _billOwner(agentBill)) revert BuyerAgentSameAddress();
-        _enforceReputationGate(_billOwner(agentBill));
+        (bytes32 buyerBill, bytes32 agentBill) = _validateAndBindBills(buyerBillId, agentBillId);
 
         // ═══ Intent validation ═══
         if (intent.buyer != _billOwner(buyerBill)) revert IntentPartyMismatch("buyer");
@@ -566,9 +547,6 @@ contract KarmaBilateral {
             revert IntentAmountMismatch(intent.amount, _billAmounts[buyerBillId], _billAmounts[agentBillId]);
         if (intent.expiresAt < block.timestamp) revert IntentExpired(intent.expiresAt);
         if (intent.serviceType == bytes32(0)) revert ZeroAmount();
-
-        _bills[buyerBillId] = _setBillState(buyerBill, BillState.BOUND);
-        _bills[agentBillId] = _setBillState(agentBill, BillState.BOUND);
 
         bytes32 intentHash = keccak256(abi.encode(intent));
 
@@ -899,41 +877,6 @@ contract KarmaBilateral {
 
         _executeSettle(bindingId, b, b.buyerBillId, b.agentBillId, proofHash);
         emit TEESettled(bindingId, imageHash);
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  LAYER 3 — ZK Proof Verification (interface reserved, not yet implemented)
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice [LAYER 3 — NOT YET IMPLEMENTED]
-    ///         Settle by verifying a Zero-Knowledge proof of correct execution.
-    ///         Valid proof settles immediately; invalid proof triggers an immediate
-    ///         refund (no optimistic fallback — ZK proofs are deterministic).
-    ///
-    ///         Future implementation:
-    ///           bytes zkProof = abi.encode(
-    ///               proof_a,       // uint256[2]: G1 point
-    ///               proof_b,       // uint256[2][2]: G2 point
-    ///               proof_c,       // uint256[2]: G1 point
-    ///               publicInputs   // uint256[]: [bindingId, proofHash, ...]
-    ///           );
-    ///           Verification: IZKVerifier(zkVerifier).verifyProof(proof_a, proof_b, proof_c, publicInputs)
-    ///           If valid  -> _executeSettle()  (immediate)
-    ///           If invalid -> _executeRefund() (immediate, no appeal)
-    ///
-    /// @param  bindingId  Binding to settle.
-    /// @param  proofHash  keccak256 of execution proof (must match ZK public input).
-    /// @param  zkProof    ABI-encoded Groth16/PLONK proof + public inputs.
-    function settleWithZKProof(
-        uint256 bindingId,
-        bytes32 proofHash,
-        bytes calldata zkProof
-    ) external nonReentrant {
-        bindingId;
-        proofHash;
-        zkProof;
-        // TODO: Layer 3 implementation
-        revert ZKNotImplemented();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
