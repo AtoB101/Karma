@@ -113,6 +113,9 @@ contract DeployKarmaBilateral is Script {
         uint256 tlThreshold = vm.envOr("TIMELOCK_THRESHOLD", uint256(1));
         uint256 tlDelay     = vm.envOr("TIMELOCK_DELAY",     uint256(0));
         uint256 gwDelay     = vm.envOr("GATEWAY_CHANGE_DELAY", uint256(0));
+        uint256 disputeWindow   = vm.envOr("DISPUTE_WINDOW",     uint256(1_800));
+        uint256 settleTimeout   = vm.envOr("SETTLE_TIMEOUT",     uint256(604_800));
+        uint256 challengeWindow = vm.envOr("CHALLENGE_WINDOW",   uint256(3_600));
 
         // SECURITY: AdminTimelock is deployed AFTER startBroadcast below. Creating
         // it before startBroadcast leaves the on-chain admin as a dead, code-less
@@ -139,13 +142,16 @@ contract DeployKarmaBilateral is Script {
                 "MAINNET GUARD: ARBITRATOR_ADDRESS must be a multisig contract, not an EOA");
             require(gwDelay > 0,
                 "MAINNET GUARD: GATEWAY_CHANGE_DELAY must be > 0");
+            require(disputeWindow >= 30 minutes,
+                "MAINNET GUARD: DISPUTE_WINDOW (settle delay) must be >= 30 min");
+            require(settleTimeout >= 1 days,
+                "MAINNET GUARD: SETTLE_TIMEOUT must be >= 1 day");
+            require(challengeWindow >= 1 hours,
+                "MAINNET GUARD: CHALLENGE_WINDOW must be >= 1 hour");
             console.log("[MAINNET GUARD] timelock multisig + arbitrator + gateway delay verified");
         }
 
         uint256 batchThreshold  = vm.envOr("BATCH_THRESHOLD",    uint256(1_000_000_000));
-        uint256 disputeWindow   = vm.envOr("DISPUTE_WINDOW",     uint256(1_800));
-        uint256 settleTimeout   = vm.envOr("SETTLE_TIMEOUT",     uint256(604_800));
-        uint256 challengeWindow = vm.envOr("CHALLENGE_WINDOW",   uint256(3_600));
         uint256 verifierN       = vm.envOr("VERIFIER_THRESHOLD", uint256(3));
         uint256 verifierM       = vm.envOr("VERIFIER_TOTAL",     uint256(5));
 
