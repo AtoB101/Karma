@@ -580,6 +580,9 @@ class Settings(BaseSettings):
     # 花钱必须有一张 owner 钱包签名的 spending grant（无授权/过期/超额/撤销一律拒）。
     # 生产默认 true；测试里由 autouse fixture 关闭（见 tests/conftest.py）。
     spending_grant_enforced: bool = True
+    # 花钱 / 建单 / 铸钥匙必须先走完七步接入授权（owner 逐步弹窗同意）。
+    # 生产默认 true；测试里由 autouse fixture 关闭（见 tests/conftest.py）。
+    onboarding_authorization_enforced: bool = True
     # settle 的 proof_hash 必须有可检索的 proof 数据（DA），生产可打开。
     require_proof_availability: bool = False
 
@@ -728,6 +731,12 @@ class Settings(BaseSettings):
                     "SPENDING_GRANT_ENFORCED must be true when APP_ENV is production "
                     "(otherwise the operator can disable the owner-signed spending grant "
                     "and every agent spend path loses its budgeted authorization gate)",
+                )
+            if not self.onboarding_authorization_enforced:
+                raise ValueError(
+                    "ONBOARDING_AUTHORIZATION_ENFORCED must be true when APP_ENV is production "
+                    "(otherwise the step-by-step owner consent flow can be bypassed and "
+                    "agents could spend without the owner ever approving each onboarding step)",
                 )
             if not self.ledger_require_party_actor:
                 raise ValueError(
