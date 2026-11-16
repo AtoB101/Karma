@@ -154,9 +154,7 @@ def _fmt(template: str, ctx: dict[str, Any]) -> str:
         return template
 
 
-def _sign_message(flow: OnboardingFlow, step: dict[str, Any]) -> str:
-    nonce = secrets.token_hex(8)
-    flow.collected[f"{step['step_id']}_nonce"] = nonce
+def _sign_message_text(flow: OnboardingFlow, step: dict[str, Any], nonce: str) -> str:
     return (
         "Karma 接入授权 · "
         f"第 {step['order']} 步「{step['title_zh']}」\n"
@@ -164,6 +162,12 @@ def _sign_message(flow: OnboardingFlow, step: dict[str, Any]) -> str:
         f"角色：{flow.profile_id}\n"
         f"nonce：{nonce}"
     )
+
+
+def _sign_message(flow: OnboardingFlow, step: dict[str, Any]) -> str:
+    nonce = secrets.token_hex(8)
+    flow.collected[f"{step['step_id']}_nonce"] = nonce
+    return _sign_message_text(flow, step, nonce)
 
 
 def _make_matching_code() -> str:
@@ -342,6 +346,18 @@ def respond_onboarding(*, flow_id: str, action: str, value: dict[str, Any] | Non
             raise ValueError("address must be a 0x-prefixed 40-hex address")
         if not signature.startswith("0x") or len(signature) < 130:
             raise ValueError("signature must be a 0x-prefixed hex signature")
+        nonce = str(flow.collected.get(f"{step['step_id']}_nonce") or "").strip()
+        if not nonce:
+            raise ValueError("missing signing nonce; re-fetch the current prompt first")
+        message = _sign_message_text(flow, step, nonce)
+        try:
+            from services.runtime_wallet import verify_personal_message
+
+            verify_personal_message(
+                message=message, wallet_address=address, wallet_signature=signature
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"wallet signature verification failed: {exc}") from exc
         flow.collected[f"{step['step_id']}_address"] = address
         flow.collected[f"{step['step_id']}_signature"] = signature
     elif prompt_type == "matching_code":
@@ -378,3 +394,19 @@ def abort_onboarding(flow_id: str) -> dict[str, Any]:
     with _LOCK:
         _persist_unlocked()
     return {"status": "aborted", "flow": flow.public(), "prompt": None}
+
+
+def completed_onboarding_identity_ids() -> set[str]:
+    """All owner identities with a completed onboarding authorization flow."""
+    _ensure_loaded()
+    with _LOCK:
+        return {
+            f.identity_id
+            for f in _FLOWS.values()
+            if f.status == "complete" and f.identity_id
+        }
+
+
+def has_completed_onboarding(identity_id: str) -> bool:
+    """Whether this owner identity has finished the seven-step consent flow."""
+    return (identity_id or "").strip() in completed_onboarding_identity_ids()

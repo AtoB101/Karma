@@ -92,6 +92,7 @@ _RESTRICTED_KEY_ALLOWED_PATH_PREFIXES = (
     "/v1/spending-grants/approval-request",
     "/v1/spending-grants/approval/",
     "/v1/agents/first-key/upgrade",
+    "/v1/onboarding-authorization/",
 )
 
 

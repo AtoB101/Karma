@@ -98,3 +98,8 @@ packages/sdk/dist/
 # Editor / tool backups
 *.bak
 
+
+# Scratch / temp artifacts preserved on disk (not part of main chain)
+scratch/
+karma-core/contracts/lib/
+

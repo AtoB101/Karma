@@ -21,7 +21,11 @@ from services.agent_boundary import (
     materialize_agent_boundary,
 )
 from services.agent_directory import connect_agent, refresh_p1_ready
-from services.agent_bootstrap_credentials import has_minted_api_key, mint_agent_api_key
+from services.agent_bootstrap_credentials import (
+    has_minted_api_key,
+    mint_agent_api_key,
+    mint_restricted_api_key,
+)
 from services.agent_key_store import (
     AgentKeyError,
     AgentSigner,
@@ -31,6 +35,7 @@ from services.agent_key_store import (
     revoke_agent_key,
 )
 from services.agent_one_click import build_next_steps, list_vertical_aliases, resolve_one_click
+from services.onboarding_authorization import get_onboarding_flow
 from services.agent_onboarding_template import OnboardingError, materialize_onboarding, suggest_industries_for_text
 from services.agent_p1_readiness import (
     attest_responsibility_ack,
@@ -167,6 +172,10 @@ class OneClickConnectRequest(BaseModel):
     answers: dict[str, Any] = Field(default_factory=dict)
     mint_api_key: bool = True
     allow_example_specs: bool = True
+    # 只有带一个已完成七步接入授权的 flow 才能铸 full-scope 钥匙；
+    # 否则只铸受限钥匙（只能申请 grant，不能花钱），授权流程见
+    # POST /v1/onboarding-authorization/start。
+    onboarding_flow_id: str | None = Field(default=None, max_length=128)
 
     @field_validator("display_name", mode="before")
     @classmethod
@@ -697,10 +706,31 @@ async def one_click_connect(
             "Optional: POST /runtime/create-key with wallet personal_sign for voucher/receipt path"
         ),
     }
+    onboarding_completed = False
+    if body.onboarding_flow_id:
+        flow = get_onboarding_flow(body.onboarding_flow_id)
+        if flow is None:
+            raise HTTPException(404, "unknown onboarding flow")
+        if flow.status != "complete":
+            raise HTTPException(403, "onboarding authorization flow is not complete yet")
+        if body.owner_identity_id and flow.identity_id != body.owner_identity_id:
+            raise HTTPException(403, "onboarding flow belongs to a different owner identity")
+        onboarding_completed = True
+
     if body.mint_api_key:
-        minted = mint_agent_api_key(str(agent_id))
-        credentials["api_key"] = minted["api_key"]
-        credentials["api_key_hint"] = minted["api_key_hint"]
+        if onboarding_completed:
+            minted = mint_agent_api_key(str(agent_id))
+            credentials["api_key"] = minted["api_key"]
+            credentials["api_key_hint"] = minted["api_key_hint"]
+            credentials["key_scope"] = ["*"]
+        else:
+            # 无签名接入只发受限钥匙：能申请授权，不能花钱/建单/铸钥。
+            minted = mint_restricted_api_key(str(agent_id), scope=["grant:apply"])
+            credentials["api_key"] = minted["api_key"]
+            credentials["api_key_hint"] = minted["api_key_hint"]
+            credentials["key_scope"] = list(minted["scope"])
+            credentials["onboarding_required"] = True
+            credentials["onboarding_flow_hint"] = "POST /v1/onboarding-authorization/start"
 
     await db.commit()
     return {
@@ -727,8 +757,9 @@ async def one_click_connect(
         ),
         "discovery_hints": core.get("discovery_hints"),
         "note_zh": (
-            "一键接入完成：已按垂直场景落库身份/边界/责任签认，并签发引导 API Key（仅此一次明文）。"
-            "对端 GET /p1-status 核验后再成交。"
+            "一键接入完成：已落库身份/边界。"
+            "未带已完成的接入授权时，只签发受限钥匙（仅能申请授权，不能花钱）；"
+            "带 onboarding_flow_id 且流程已 complete 时才签发 full-scope 钥匙。"
         ),
     }
 

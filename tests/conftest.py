@@ -63,6 +63,17 @@ def _spending_grant_gate_disabled_in_tests(monkeypatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _onboarding_authorization_disabled_in_tests(monkeypatch) -> None:
+    """花钱/建单/铸钥匙必须走完七步接入授权这道闸门，在测试里默认放开。
+
+    生产默认是**开**的（``ONBOARDING_AUTHORIZATION_ENFORCED=true``）。
+    大量用例考的是机制本身，并没有预先走完七步流，这里放开让它们继续考该考的东西；
+    「闸门真的拦得住」由专门用例单独考。
+    """
+    monkeypatch.setattr(settings, "onboarding_authorization_enforced", False)
+
+
+@pytest.fixture(autouse=True)
 def _protected_route_auth_disabled_in_tests(monkeypatch) -> None:
     """Protected-route auth gate is off in tests by default.
 

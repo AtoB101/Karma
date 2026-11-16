@@ -77,6 +77,13 @@ GET /v1/agents/one-click-verticals
 - When `AUTH_ENFORCE_PROTECTED_ROUTES=true`, callers still need a prior bootstrap/admin key to hit the endpoint; after connect, the minted key authenticates that agent.
 - Production still requires owner PoP + signed responsibility ack + real `service_specs` (same P1 gates as `connect-from-template`).
 
+## 钥匙范围（v1 收紧）
+
+- 不带 `onboarding_flow_id`（或流程未完成）时，`mint_api_key=true` 只签发**受限钥匙**（scope `grant:apply`），
+  只能走 `POST /v1/onboarding-authorization/*` 和 `POST /v1/spending-grants/approval-request` 申请授权，不能花钱/建单/铸钥。
+- 带 `onboarding_flow_id` 且该七步接入授权流程已 `complete`（且 `owner_identity_id` 一致）时，才签发 full-scope 钥匙。
+- 花钱 / 建单 / 铸钥在 `ONBOARDING_AUTHORIZATION_ENFORCED=true` 时还会再查一次「该 owner 已完成七步接入授权」。
+
 ## curl
 
 ```bash

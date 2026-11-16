@@ -20,7 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models.orm import SpendingGrantModel, SpendingGrantEventModel, SpendingReservationModel
+from db.models.orm import AgentModel, SpendingGrantModel, SpendingGrantEventModel, SpendingReservationModel
 
 logger = structlog.get_logger(__name__)
 
@@ -31,6 +31,35 @@ ACTIVE_STATUS = "active"
 
 #: Float comparison tolerance for allowance guards.
 _GRANT_EPS = 1e-9
+
+
+async def _require_onboarding_if_enforced(
+    db: AsyncSession, *, agent_id: str, owner_identity_id: str | None
+) -> None:
+    """Every spend/settle path also requires the owner's seven-step onboarding
+    consent to be complete (when the enforcement flag is on). Resolves the owner
+    identity from the agent row when the caller does not already know it."""
+    from config.settings import settings
+
+    if not getattr(settings, "onboarding_authorization_enforced", True):
+        return
+    oid = (owner_identity_id or "").strip()
+    if not oid:
+        agent = await db.get(AgentModel, agent_id)
+        oid = (agent.owner_identity_id or "").strip() if agent is not None else ""
+    if not oid:
+        return
+    from services.onboarding_authorization import has_completed_onboarding
+
+    if not has_completed_onboarding(oid):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "onboarding authorization not completed; "
+                "run POST /v1/onboarding-authorization/start and have the owner "
+                "approve each step before spending"
+            ),
+        )
 
 
 def build_grant_message(
@@ -281,6 +310,9 @@ async def assert_spend_allowed(
     owner_identity_id: str | None = None,
 ) -> SpendingGrantModel:
     """Hard server-side gate: reject spend with no active, unexpired, sufficient grant."""
+    await _require_onboarding_if_enforced(
+        db, agent_id=agent_id, owner_identity_id=owner_identity_id
+    )
     stmt = (
         select(SpendingGrantModel)
         .where(SpendingGrantModel.agent_id == agent_id)
@@ -336,6 +368,9 @@ async def assert_agent_authorized(
     deliberately a lighter check than assert_spend_allowed -- it does
     not consume allowance and does not compare amounts.
     """
+    await _require_onboarding_if_enforced(
+        db, agent_id=agent_id, owner_identity_id=owner_identity_id
+    )
     stmt = (
         select(SpendingGrantModel)
         .where(SpendingGrantModel.agent_id == agent_id)

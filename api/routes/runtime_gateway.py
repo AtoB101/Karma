@@ -476,6 +476,18 @@ async def runtime_create_key(body: CreateRuntimeKeyBody, db: AsyncSession = Depe
         wallet_address=body.wallet_address,
         wallet_signature=body.wallet_signature,
     )
+    if settings.onboarding_authorization_enforced:
+        from services.onboarding_authorization import has_completed_onboarding
+
+        if not has_completed_onboarding(body.karma_identity_id):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "onboarding authorization not completed; "
+                    "run POST /v1/onboarding-authorization/start and have the owner "
+                    "approve every step before minting a runtime key"
+                ),
+            )
     # 注意：这里**不能**再写 ``from config.settings import settings`` ——
     # 那句局部 import 会让整个函数里的 settings 变成局部名，函数开头的
     # getattr(settings, ...) 就会在赋值前被访问（UnboundLocalError）。
